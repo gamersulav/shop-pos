@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #07070f;
+  --card: #0e0e1c;
+  --border: #1e1e35;
+  --cyan: #00d4ff;
+  --green: #00e676;
+  --amber: #ffb020;
+  --red: #ff3355;
+  --purple: #b060ff;
+  --text: #e8e8f0;
+  --muted: #7070a0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  margin: 0;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* input base */
+input, select, textarea {
+  background: #12122a;
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+  -webkit-appearance: none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12);
+}
+select option { background: #12122a; }
+
+/* card */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+/* buttons */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s;
+  width: 100%;
+  min-height: 52px;
+  letter-spacing: 0.3px;
+}
+.btn:active { transform: scale(0.97); }
+.btn-cyan  { background: var(--cyan);   color: #000; }
+.btn-green { background: var(--green);  color: #000; }
+.btn-amber { background: var(--amber);  color: #000; }
+.btn-red   { background: var(--red);    color: #fff; }
+.btn-ghost {
+  background: transparent;
+  border: 1.5px solid var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); }
+.btn-sm { min-height: 38px; padding: 8px 14px; font-size: 13px; border-radius: 8px; }
+
+/* tab bar */
+.tab-bar {
+  display: flex;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 0 4px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.tab {
+  flex: 1;
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2.5px solid transparent;
+  transition: all 0.2s;
+  user-select: none;
+}
+.tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+/* stat card */
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+.stat-card .val {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stat-card .lbl {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* neon glow helpers */
+.glow-cyan { text-shadow: 0 0 12px var(--cyan); }
+.glow-green { text-shadow: 0 0 12px var(--green); }
+
+/* badge */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-pending  { background: rgba(255,176,32,0.15);  color: var(--amber); }
+.badge-progress { background: rgba(0,212,255,0.15);   color: var(--cyan);  }
+.badge-done     { background: rgba(0,230,118,0.15);   color: var(--green); }
+.badge-delivered{ background: rgba(176,96,255,0.15);  color: var(--purple);}
+
+/* payment selector */
+.pay-btn {
+  flex: 1;
+  padding: 12px 6px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 2px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.18s;
+}
+.pay-btn.selected {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0,212,255,0.1);
+}
+
+/* item row */
+.item-row {
+  background: #0a0a18;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
