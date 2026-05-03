@@ -15,6 +15,7 @@ export default function Owner() {
   const router = useRouter();
   const [tab, setTab] = useState('dash');
   const [products, setProducts] = useState([]);
+  const [showChangePw, setShowChangePw] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -44,9 +45,13 @@ export default function Owner() {
             <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>
               Staff View
             </button>
+            <button onClick={() => setShowChangePw(true)} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>🔑 Password</button>
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}>Logout</button>
           </div>
         </div>
+
+        {/* Change password modal */}
+        {showChangePw && <ChangePasswordModal onClose={() => setShowChangePw(false)} />}
 
         {/* Tab bar */}
         <div className="tab-bar">
@@ -69,6 +74,60 @@ export default function Owner() {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── CHANGE PASSWORD MODAL ───────────────────────────────────────────────────
+function ChangePasswordModal({ onClose }) {
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [error, setError]   = useState('');
+  const [success, setSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setError('');
+    if (form.newPassword !== form.confirm) { setError('New passwords do not match'); return; }
+    if (form.newPassword.length < 6)       { setError('New password must be at least 6 characters'); return; }
+    setSaving(true);
+    const r = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: form.currentPassword, newPassword: form.newPassword }),
+    });
+    const data = await r.json();
+    setSaving(false);
+    if (!r.ok) { setError(data.error || 'Failed'); return; }
+    setSuccess(true);
+    setTimeout(onClose, 1500);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
+      <div className="card" style={{ width: '100%', maxWidth: 340 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>🔑 Change Password</div>
+
+        {success ? (
+          <div style={{ color: 'var(--green)', textAlign: 'center', padding: '16px 0', fontWeight: 600 }}>✓ Password changed!</div>
+        ) : (
+          <>
+            {[['Current Password', 'currentPassword'], ['New Password', 'newPassword'], ['Confirm New Password', 'confirm']].map(([lbl, key]) => (
+              <div key={key} style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl.toUpperCase()}</label>
+                <input type="password" value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && submit()} />
+              </div>
+            ))}
+            {error && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-green btn-sm" style={{ flex: 1 }} onClick={submit} disabled={saving}>
+                {saving ? 'Saving…' : 'Change Password'}
+              </button>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
