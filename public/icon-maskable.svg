@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0f1117"/>
+  <!-- Roof -->
+  <polygon points="72,228 256,110 440,228" fill="#06b6d4"/>
+  <!-- Building -->
+  <rect x="104" y="222" width="304" height="210" fill="#1a1f2e"/>
+  <!-- Left window -->
+  <rect x="126" y="258" width="88" height="68" rx="8" fill="#06b6d4" opacity="0.2"/>
+  <rect x="126" y="258" width="88" height="68" rx="8" fill="none" stroke="#06b6d4" stroke-width="8"/>
+  <!-- Right window -->
+  <rect x="298" y="258" width="88" height="68" rx="8" fill="#06b6d4" opacity="0.2"/>
+  <rect x="298" y="258" width="88" height="68" rx="8" fill="none" stroke="#06b6d4" stroke-width="8"/>
+  <!-- Door -->
+  <rect x="210" y="318" width="92" height="114" rx="8" fill="#06b6d4" opacity="0.15"/>
+  <rect x="210" y="318" width="92" height="114" rx="8" fill="none" stroke="#06b6d4" stroke-width="8"/>
+  <circle cx="290" cy="378" r="7" fill="#06b6d4"/>
+</svg>
