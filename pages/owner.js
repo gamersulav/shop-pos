@@ -3,10 +3,12 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 
 const TABS = [
-  { id: 'dash',     label: '📊 Dashboard' },
-  { id: 'products', label: '🏷 Products' },
-  { id: 'costs',    label: '💲 Costs' },
-  { id: 'repairs',  label: '🔧 Repairs' },
+  { id: 'dash',      label: '📊 Dashboard' },
+  { id: 'analytics', label: '📈 Analytics' },
+  { id: 'products',  label: '🏷 Products' },
+  { id: 'phones',    label: '📱 Phones' },
+  { id: 'costs',     label: '💲 Costs' },
+  { id: 'repairs',   label: '🔧 Repairs' },
 ];
 
 export default function Owner() {
@@ -37,9 +39,7 @@ export default function Owner() {
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
-          <div>
-            <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 16 }}>👑 Owner Panel</span>
-          </div>
+          <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 16 }}>👑 Owner Panel</span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>
               Staff View
@@ -52,7 +52,7 @@ export default function Owner() {
         <div className="tab-bar">
           {TABS.map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 12 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 10 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
@@ -60,10 +60,12 @@ export default function Owner() {
 
         {/* Tab content */}
         <div style={{ padding: '16px' }}>
-          {tab === 'dash'     && <DashboardTab />}
-          {tab === 'products' && <ProductsTab products={products} reload={loadProducts} />}
-          {tab === 'costs'    && <CostsTab    products={products} />}
-          {tab === 'repairs'  && <RepairsTab />}
+          {tab === 'dash'      && <DashboardTab />}
+          {tab === 'analytics' && <AnalyticsTab />}
+          {tab === 'products'  && <ProductsTab products={products} reload={loadProducts} />}
+          {tab === 'phones'    && <OwnerPhonesTab />}
+          {tab === 'costs'     && <CostsTab products={products} />}
+          {tab === 'repairs'   && <RepairsTab />}
         </div>
       </div>
     </>
@@ -82,35 +84,37 @@ function DashboardTab() {
 
   if (!data) return <LoadingState />;
 
-  const { today, weekly, monthly, topProducts, pendingRepairs, payments } = data;
+  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats } = data;
+
+  const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Today's numbers */}
+      {/* Today */}
       <div>
         <SectionLabel>TODAY</SectionLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <StatCard val={`Rs ${today.revenue.toFixed(0)}`} lbl="Revenue" color="var(--cyan)" />
-          <StatCard val={`Rs ${today.profit.toFixed(0)}`} lbl="Profit" color="var(--green)" />
-          <StatCard val={today.sales} lbl="Sales" color="var(--amber)" />
+          <StatCard val={`Rs ${today.profit.toFixed(0)}`}  lbl="Profit"  color="var(--green)" />
+          <StatCard val={today.sales} lbl="Sales"      color="var(--amber)" />
           <StatCard val={today.items} lbl="Items Sold" color="var(--purple)" />
         </div>
       </div>
 
-      {/* Monthly numbers */}
+      {/* This month */}
       <div>
         <SectionLabel>THIS MONTH</SectionLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <StatCard val={`Rs ${monthly.revenue.toFixed(0)}`} lbl="Revenue" color="var(--cyan)" />
-          <StatCard val={`Rs ${monthly.profit.toFixed(0)}`} lbl="Profit" color="var(--green)" />
-          <StatCard val={`${monthly.margin.toFixed(1)}%`} lbl="Margin" color="var(--amber)" />
-          <StatCard val={monthly.sales} lbl="Sales" color="var(--purple)" />
+          <StatCard val={`Rs ${monthly.revenue.toFixed(0)}`}      lbl="Revenue" color="var(--cyan)" />
+          <StatCard val={`Rs ${monthly.profit.toFixed(0)}`}       lbl="Profit"  color="var(--green)" />
+          <StatCard val={`${monthly.margin.toFixed(1)}%`}         lbl="Margin"  color="var(--amber)" />
+          <StatCard val={monthly.sales}                            lbl="Sales"   color="var(--purple)" />
         </div>
       </div>
 
       {/* Payment breakdown */}
-      {payments.length > 0 && (
+      {payments?.length > 0 && (
         <div>
           <SectionLabel>TODAY'S PAYMENTS</SectionLabel>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -118,7 +122,7 @@ function DashboardTab() {
               <div key={p.method} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 14 }}>{p.method}</span>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.total.toFixed(0)}</span>
+                  <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {Number(p.total).toFixed(0)}</span>
                   <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>{p.count} sale{p.count !== 1 ? 's' : ''}</span>
                 </div>
               </div>
@@ -127,8 +131,26 @@ function DashboardTab() {
         </div>
       )}
 
+      {/* Phones summary */}
+      {phoneStats && (
+        <div>
+          <SectionLabel>USED PHONES</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <StatCard val={phoneStats.available}                         lbl="Available"        color="var(--cyan)" />
+            <StatCard val={phoneStats.soldThisMonth}                     lbl="Sold This Month"  color="var(--green)" />
+            <StatCard val={`Rs ${phoneStats.profitThisMonth.toFixed(0)}`} lbl="Phone Profit"    color="var(--green)" />
+            <StatCard val={phoneStats.needsPricing}                      lbl="Need Pricing"     color={phoneStats.needsPricing > 0 ? 'var(--amber)' : 'var(--muted)'} />
+          </div>
+          {phoneStats.needsPricing > 0 && (
+            <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(245,158,11,0.12)', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', fontSize: 13, color: 'var(--amber)' }}>
+              ⚠ {phoneStats.needsPricing} phone{phoneStats.needsPricing !== 1 ? 's' : ''} waiting for price — go to Phones tab
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top products */}
-      {topProducts.length > 0 && (
+      {topProducts?.length > 0 && (
         <div>
           <SectionLabel>TOP SELLING (THIS MONTH)</SectionLabel>
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -140,8 +162,8 @@ function DashboardTab() {
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.qty} units</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--cyan)' }}>Rs {p.revenue.toFixed(0)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--green)' }}>+Rs {p.profit.toFixed(0)} profit</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--cyan)' }}>Rs {Number(p.revenue).toFixed(0)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--green)' }}>+Rs {Number(p.profit).toFixed(0)} profit</div>
                 </div>
               </div>
             ))}
@@ -149,23 +171,39 @@ function DashboardTab() {
         </div>
       )}
 
-      {/* Pending repairs */}
-      {pendingRepairs.length > 0 && (
-        <div>
-          <SectionLabel>PENDING REPAIRS ({pendingRepairs.length})</SectionLabel>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {pendingRepairs.map(r => (
-              <div key={r.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{r.customer_name}</div>
-                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>{r.phone_model} — {r.issue.slice(0, 40)}</div>
-                </div>
-                <StatusBadge status={r.status} />
+      {/* Repair stats */}
+      <div>
+        <SectionLabel>REPAIRS</SectionLabel>
+        {repairStats?.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 10 }}>
+            {repairStats.map(s => (
+              <div key={s.status} className="card" style={{ textAlign: 'center', padding: '10px 8px' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: repairStatusColors[s.status] || 'var(--text)' }}>{s.count}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.status}</div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 10 }}>No repairs yet</div>
+        )}
+
+        {activeRepairs?.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>ACTIVE ({activeRepairs.length})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {activeRepairs.map(r => (
+                <div key={r.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{r.customer_name}</div>
+                    <div style={{ color: 'var(--muted)', fontSize: 12 }}>{r.phone_model} — {r.issue?.slice(0, 40)}</div>
+                  </div>
+                  <StatusBadge status={r.status} />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -176,6 +214,7 @@ function ProductsTab({ products, reload }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newProd, setNewProd] = useState({ name: '', selling_price: '', cost_price: '', stock: '' });
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   async function saveProduct() {
     if (!newProd.name || !newProd.selling_price) { alert('Name and selling price required'); return; }
@@ -197,8 +236,6 @@ function ProductsTab({ products, reload }) {
   }
 
   async function saveEdit(id) {
-    const p = products.find(p => p.id === id);
-    if (!p) return;
     setSaving(true);
     await fetch(`/api/products/${id}`, {
       method: 'PUT',
@@ -207,6 +244,12 @@ function ProductsTab({ products, reload }) {
     });
     setSaving(false);
     setEditing(null);
+    reload();
+  }
+
+  async function deleteProduct(id) {
+    await fetch(`/api/products/${id}`, { method: 'DELETE' });
+    setConfirmDelete(null);
     reload();
   }
 
@@ -231,6 +274,23 @@ function ProductsTab({ products, reload }) {
           <button className="btn btn-green" onClick={saveProduct} disabled={saving}>
             {saving ? 'Saving…' : 'Save Product'}
           </button>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 340 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Delete Product?</div>
+            <div style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 16 }}>
+              Delete <strong style={{ color: 'var(--text)' }}>{confirmDelete.name}</strong>? This cannot be undone.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-sm" style={{ flex: 1, background: 'var(--red)', color: '#fff', border: 'none' }}
+                onClick={() => deleteProduct(confirmDelete.id)}>Delete</button>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setConfirmDelete(null)}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -263,10 +323,195 @@ function ProductsTab({ products, reload }) {
                     Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)' }}>{p.stock}</span>
                   </div>
                 </div>
-                <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
-                  onClick={() => setEditing({ id: p.id, selling_price: p.selling_price, cost_price: p.cost_price, stock: p.stock })}>
-                  Edit
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
+                    onClick={() => setEditing({ id: p.id, selling_price: p.selling_price, cost_price: p.cost_price, stock: p.stock })}>
+                    Edit
+                  </button>
+                  <button className="btn btn-sm" style={{ width: 'auto', padding: '6px 10px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)' }}
+                    onClick={() => setConfirmDelete({ id: p.id, name: p.name })}>
+                    Del
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── OWNER PHONES TAB ─────────────────────────────────────────────────────────
+function OwnerPhonesTab() {
+  const [phones, setPhones] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [view, setView] = useState('available'); // 'available' | 'sold'
+
+  useEffect(() => { loadPhones(); }, []);
+  function loadPhones() {
+    fetch('/api/phones').then(r => r.json()).then(setPhones);
+  }
+
+  async function savePrice(id) {
+    if (!editing) return;
+    setSaving(true);
+    await fetch(`/api/phones/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cost_price:    parseFloat(editing.cost_price)    || 0,
+        selling_price: parseFloat(editing.selling_price) || 0,
+        condition:     editing.condition,
+        notes:         editing.notes,
+      }),
+    });
+    setSaving(false);
+    setEditing(null);
+    loadPhones();
+  }
+
+  async function deletePhone(id) {
+    await fetch(`/api/phones/${id}`, { method: 'DELETE' });
+    setConfirmDelete(null);
+    loadPhones();
+  }
+
+  const available = phones.filter(p => p.status === 'available');
+  const sold      = phones.filter(p => p.status === 'sold');
+  const needsPricing = available.filter(p => !Number(p.selling_price));
+  const readyToSell  = available.filter(p =>  Number(p.selling_price));
+  const displayed    = view === 'available' ? available : sold;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Used Phones</h2>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{available.length} available · {sold.length} sold</div>
+      </div>
+
+      {needsPricing.length > 0 && (
+        <div style={{ marginBottom: 14, padding: '10px 14px', background: 'rgba(245,158,11,0.12)', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', fontSize: 13, color: 'var(--amber)' }}>
+          ⚠ {needsPricing.length} phone{needsPricing.length !== 1 ? 's' : ''} need pricing before staff can sell
+        </div>
+      )}
+
+      {/* View toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['available', `Available (${available.length})`], ['sold', `Sold (${sold.length})`]].map(([v, lbl]) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`btn btn-sm ${view === v ? 'btn-cyan' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 340 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Delete Phone?</div>
+            <div style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 16 }}>
+              Delete <strong style={{ color: 'var(--text)' }}>{confirmDelete.model}</strong>? This cannot be undone.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-sm" style={{ flex: 1, background: 'var(--red)', color: '#fff', border: 'none' }}
+                onClick={() => deletePhone(confirmDelete.id)}>Delete</button>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setConfirmDelete(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {displayed.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+          {view === 'available' ? 'No phones in stock' : 'No phones sold yet'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {displayed.map(p => (
+          <div key={p.id} className="card">
+            {editing?.id === p.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Pricing: {p.model}</div>
+                {[['Cost Price (Rs)', 'cost_price', 'number'], ['Selling Price (Rs)', 'selling_price', 'number']].map(([lbl, key, type]) => (
+                  <div key={key}>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
+                    <input type={type} value={editing[key]} onChange={e => setEditing(ed => ({ ...ed, [key]: e.target.value }))} />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CONDITION</label>
+                  <select value={editing.condition} onChange={e => setEditing(ed => ({ ...ed, condition: e.target.value }))}>
+                    <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>NOTES</label>
+                  <input type="text" value={editing.notes} onChange={e => setEditing(ed => ({ ...ed, notes: e.target.value }))} placeholder="Optional notes..." />
+                </div>
+                {editing.cost_price && editing.selling_price && Number(editing.selling_price) > 0 && (
+                  <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.1)', borderRadius: 6, fontSize: 13 }}>
+                    Margin: <strong style={{ color: 'var(--green)' }}>
+                      Rs {(Number(editing.selling_price) - Number(editing.cost_price)).toFixed(0)}
+                    </strong>
+                    {Number(editing.cost_price) > 0 && (
+                      <span style={{ color: 'var(--muted)', marginLeft: 8 }}>
+                        ({(((Number(editing.selling_price) - Number(editing.cost_price)) / Number(editing.cost_price)) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-green btn-sm" style={{ flex: 1 }} onClick={() => savePrice(p.id)} disabled={saving}>
+                    {saving ? 'Saving…' : 'Save Prices'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setEditing(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{p.model}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      {p.condition}
+                      {p.notes ? ` · ${p.notes}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {p.status === 'available' && (
+                      <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
+                        onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '' })}>
+                        {Number(p.selling_price) ? 'Edit' : '+ Price'}
+                      </button>
+                    )}
+                    <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
+                      onClick={() => setConfirmDelete({ id: p.id, model: p.model })}>
+                      Del
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                  <span>Cost: <strong style={{ color: 'var(--amber)' }}>Rs {Number(p.cost_price).toFixed(0)}</strong></span>
+                  {Number(p.selling_price) ? (
+                    <>
+                      <span>Sell: <strong style={{ color: 'var(--cyan)' }}>Rs {Number(p.selling_price).toFixed(0)}</strong></span>
+                      <span>Profit: <strong style={{ color: 'var(--green)' }}>Rs {(Number(p.selling_price) - Number(p.cost_price)).toFixed(0)}</strong></span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--amber)' }}>⚠ Not priced yet</span>
+                  )}
+                </div>
+                {p.status === 'sold' && p.sold_at && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+                    Sold {new Date(p.sold_at).toLocaleDateString('en-IN')}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -426,6 +671,174 @@ function RepairsTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── ANALYTICS TAB ───────────────────────────────────────────────────────────
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmt(n) {
+  const abs = Math.abs(n);
+  if (abs >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (abs >= 1000)    return `${(n / 1000).toFixed(1)}k`;
+  return n.toFixed(0);
+}
+
+function AnalyticsTab() {
+  const curYear = new Date().getFullYear().toString();
+  const [data, setData]   = useState(null);
+  const [year, setYear]   = useState(curYear);
+  const [view, setView]   = useState('monthly');   // 'monthly' | 'yearly'
+  const [cat, setCat]     = useState('all');        // 'all' | 'products' | 'phones' | 'repairs'
+
+  useEffect(() => {
+    setData(null);
+    fetch(`/api/analytics?year=${year}`).then(r => r.json()).then(setData);
+  }, [year]);
+
+  if (!data) return <LoadingState />;
+
+  function buildMonthly() {
+    return data.products.map((row, i) => {
+      const ph = data.phones[i];
+      const rp = data.repairs[i];
+      if (cat === 'all')      return { label: MONTH_NAMES[i], revenue: row.revenue + ph.revenue + rp.revenue, profit: row.profit + ph.profit + rp.profit, count: row.count + ph.count + rp.count };
+      if (cat === 'products') return { label: MONTH_NAMES[i], ...row };
+      if (cat === 'phones')   return { label: MONTH_NAMES[i], ...ph };
+      return { label: MONTH_NAMES[i], revenue: rp.revenue, profit: rp.profit, count: rp.count };
+    });
+  }
+
+  function buildYearly() {
+    const allYears = [...new Set([
+      ...data.yearly.products.map(r => r.year),
+      ...data.yearly.phones.map(r   => r.year),
+      ...data.yearly.repairs.map(r  => r.year),
+    ])].sort((a, b) => b.localeCompare(a));
+
+    return allYears.map(yr => {
+      const p  = data.yearly.products.find(r => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
+      const ph = data.yearly.phones.find(r   => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
+      const rp = data.yearly.repairs.find(r  => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
+      if (cat === 'all')      return { label: yr, revenue: p.revenue + ph.revenue + rp.revenue, profit: p.profit + ph.profit + rp.profit, count: p.count + ph.count + rp.count };
+      if (cat === 'products') return { label: yr, ...p };
+      if (cat === 'phones')   return { label: yr, ...ph };
+      return { label: yr, revenue: rp.revenue, profit: rp.profit, count: rp.count };
+    });
+  }
+
+  const rows  = view === 'monthly' ? buildMonthly() : buildYearly();
+  const total = rows.reduce((acc, r) => ({ revenue: acc.revenue + r.revenue, profit: acc.profit + r.profit, count: acc.count + r.count }), { revenue: 0, profit: 0, count: 0 });
+
+  const countLabel = cat === 'repairs' ? 'Jobs' : 'Sales';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Analytics</h2>
+
+      {/* View toggle */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {[['monthly', 'Monthly'], ['yearly', 'All Years']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`btn btn-sm ${view === v ? 'btn-cyan' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Year selector — only for monthly view */}
+      {view === 'monthly' && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {data.years.map(y => (
+            <button key={y} onClick={() => setYear(y)}
+              className={`btn btn-sm ${year === y ? 'btn-purple' : 'btn-ghost'}`}
+              style={{ width: 'auto', padding: '6px 16px' }}>
+              {y}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Category tabs */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[['all','All'],['products','Products'],['phones','Phones'],['repairs','Repairs']].map(([c, lbl]) => (
+          <button key={c} onClick={() => setCat(c)}
+            className={`btn btn-sm ${cat === c ? 'btn-amber' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 11 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Summary totals */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <div className="stat-card">
+          <div className="val" style={{ color: 'var(--cyan)', fontSize: 18 }}>Rs {fmt(total.revenue)}</div>
+          <div className="lbl">Revenue</div>
+        </div>
+        <div className="stat-card">
+          <div className="val" style={{ color: 'var(--green)', fontSize: 18 }}>Rs {fmt(total.profit)}</div>
+          <div className="lbl">Profit</div>
+        </div>
+        <div className="stat-card">
+          <div className="val" style={{ color: 'var(--amber)', fontSize: 18 }}>{total.count}</div>
+          <div className="lbl">{countLabel}</div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+              <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 700, fontSize: 11, letterSpacing: 0.5 }}>
+                {view === 'monthly' ? 'MONTH' : 'YEAR'}
+              </th>
+              <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>REVENUE</th>
+              <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>PROFIT</th>
+              <th style={{ padding: '10px 10px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>
+                {countLabel.toUpperCase()}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => {
+              const isEmpty = row.revenue === 0 && row.count === 0;
+              return (
+                <tr key={row.label} style={{ borderBottom: '1px solid var(--border)', opacity: isEmpty ? 0.35 : 1 }}>
+                  <td style={{ padding: '9px 12px', fontWeight: 600, color: 'var(--text)' }}>{row.label}</td>
+                  <td style={{ padding: '9px 8px', textAlign: 'right', color: 'var(--cyan)', fontWeight: 600 }}>
+                    {row.revenue > 0 ? `Rs ${fmt(row.revenue)}` : '—'}
+                  </td>
+                  <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 600,
+                    color: row.profit > 0 ? 'var(--green)' : row.profit < 0 ? 'var(--red)' : 'var(--muted)' }}>
+                    {row.profit !== 0 ? `Rs ${fmt(row.profit)}` : '—'}
+                  </td>
+                  <td style={{ padding: '9px 10px', textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>
+                    {row.count > 0 ? row.count : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'rgba(6,182,212,0.08)', borderTop: '2px solid var(--border)' }}>
+              <td style={{ padding: '11px 12px', fontWeight: 800, color: 'var(--text)', fontSize: 13 }}>TOTAL</td>
+              <td style={{ padding: '11px 8px', textAlign: 'right', color: 'var(--cyan)', fontWeight: 800 }}>Rs {fmt(total.revenue)}</td>
+              <td style={{ padding: '11px 8px', textAlign: 'right', color: 'var(--green)', fontWeight: 800 }}>Rs {fmt(total.profit)}</td>
+              <td style={{ padding: '11px 10px', textAlign: 'right', color: 'var(--amber)', fontWeight: 800 }}>{total.count}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {cat === 'repairs' && (
+        <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+          * Revenue and profit shown only for Done/Delivered repairs. Count includes all statuses.
+        </p>
+      )}
     </div>
   );
 }
