@@ -776,6 +776,10 @@ function AnalyticsTab() {
   useEffect(() => {
     setData(null);
     fetch(`/api/analytics?year=${year}`).then(r => r.json()).then(setData);
+    const iv = setInterval(() => {
+      fetch(`/api/analytics?year=${year}`).then(r => r.json()).then(setData);
+    }, 30000);
+    return () => clearInterval(iv);
   }, [year]);
 
   if (!data) return <LoadingState />;

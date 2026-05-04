@@ -41,13 +41,24 @@ export default async function handler(req, res) {
     GROUP BY month
   `, [year]);
 
-  // ── Monthly: sales returns (deductions) ──────────────────────────────────
-  const returnsMonthly = await db.query(`
+  // ── Monthly returns split by type ─────────────────────────────────────────
+  const prodReturnsMonthly = await db.query(`
     SELECT CAST(strftime('%m', created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
            COALESCE(SUM(return_amount), 0) as revenue,
            COALESCE(SUM(return_profit), 0) as profit
     FROM sales_returns
-    WHERE strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
+    WHERE item_type = 'product'
+      AND strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
+    GROUP BY month
+  `, [year]);
+
+  const phoneReturnsMonthly = await db.query(`
+    SELECT CAST(strftime('%m', created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
+           COALESCE(SUM(return_amount), 0) as revenue,
+           COALESCE(SUM(return_profit), 0) as profit
+    FROM sales_returns
+    WHERE item_type = 'phone'
+      AND strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
     GROUP BY month
   `, [year]);
 
@@ -84,12 +95,19 @@ export default async function handler(req, res) {
     GROUP BY yr ORDER BY yr DESC
   `);
 
-  // ── Yearly totals: returns ────────────────────────────────────────────────
-  const yearlyReturns = await db.query(`
+  // ── Yearly returns split by type ──────────────────────────────────────────
+  const yearlyProdReturns = await db.query(`
     SELECT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr,
            COALESCE(SUM(return_amount), 0) as revenue,
            COALESCE(SUM(return_profit), 0) as profit
-    FROM sales_returns GROUP BY yr ORDER BY yr DESC
+    FROM sales_returns WHERE item_type = 'product' GROUP BY yr
+  `);
+
+  const yearlyPhoneReturns = await db.query(`
+    SELECT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr,
+           COALESCE(SUM(return_amount), 0) as revenue,
+           COALESCE(SUM(return_profit), 0) as profit
+    FROM sales_returns WHERE item_type = 'phone' GROUP BY yr
   `);
 
   // ── Yearly totals: repairs ────────────────────────────────────────────────
@@ -102,15 +120,17 @@ export default async function handler(req, res) {
     GROUP BY yr ORDER BY yr DESC
   `);
 
-  const returnsMap = {};
-  for (const r of returnsMonthly) returnsMap[Number(r.month)] = r;
+  function makeMap(rows) {
+    const m = {};
+    for (const r of rows) m[r.month ? Number(r.month) : r.yr] = r;
+    return m;
+  }
 
-  function toMonthArray(rows, countKey = 'sales', deductReturns = false) {
-    const map = {};
-    for (const r of rows) map[Number(r.month)] = r;
+  function toMonthArray(rows, countKey, returnsMap = {}) {
+    const map = makeMap(rows);
     return Array.from({ length: 12 }, (_, i) => {
       const m = i + 1;
-      const ret = deductReturns ? (returnsMap[m] || { revenue: 0, profit: 0 }) : { revenue: 0, profit: 0 };
+      const ret = returnsMap[m] || { revenue: 0, profit: 0 };
       return {
         month:   m,
         revenue: Math.max(0, Number(map[m]?.revenue || 0) - Number(ret.revenue)),
@@ -120,22 +140,27 @@ export default async function handler(req, res) {
     });
   }
 
-  const yearlyReturnsMap = {};
-  for (const r of yearlyReturns) yearlyReturnsMap[r.yr] = r;
+  const prodRetMap   = makeMap(prodReturnsMonthly);
+  const phoneRetMap  = makeMap(phoneReturnsMonthly);
+  const yrProdRetMap = makeMap(yearlyProdReturns);
+  const yrPhoneRetMap = makeMap(yearlyPhoneReturns);
 
   res.json({
     year,
     years,
-    products: toMonthArray(prodMonthly, 'sales', true),
-    phones:   toMonthArray(phoneMonthly),
+    products: toMonthArray(prodMonthly,  'sales', prodRetMap),
+    phones:   toMonthArray(phoneMonthly, 'sales', phoneRetMap),
     repairs:  toMonthArray(repairMonthly, 'count'),
     yearly: {
-      products: yearlyProd.map(r  => {
-        const ret = yearlyReturnsMap[r.yr] || { revenue: 0, profit: 0 };
+      products: yearlyProd.map(r => {
+        const ret = yrProdRetMap[r.yr] || { revenue: 0, profit: 0 };
         return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue)), profit: Math.max(0, Number(r.profit) - Number(ret.profit)), count: Number(r.sales) };
       }),
-      phones:   yearlyPhone.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.sales) })),
-      repairs:  yearlyRepair.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.count) })),
+      phones: yearlyPhone.map(r => {
+        const ret = yrPhoneRetMap[r.yr] || { revenue: 0, profit: 0 };
+        return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue)), profit: Math.max(0, Number(r.profit) - Number(ret.profit)), count: Number(r.sales) };
+      }),
+      repairs: yearlyRepair.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.count) })),
     },
   });
 }
