@@ -14,13 +14,22 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { itemType = 'product', itemId, itemName, quantity = 1, reason = '' } = req.body;
+    const { itemType = 'product', itemId, itemName, quantity = 1, reason = '', return_amount = 0 } = req.body;
     if (!itemId || !itemName) return res.status(400).json({ error: 'Item required' });
+
+    let return_profit = 0;
+    if (itemType === 'product') {
+      const prod = await db.queryOne('SELECT cost_price FROM products WHERE id=?', [Number(itemId)]);
+      if (prod) return_profit = Math.max(0, Number(return_amount) - Number(prod.cost_price) * Number(quantity));
+    } else if (itemType === 'phone') {
+      const phone = await db.queryOne('SELECT cost_price FROM used_phones WHERE id=?', [Number(itemId)]);
+      if (phone) return_profit = Math.max(0, Number(return_amount) - Number(phone.cost_price));
+    }
 
     await db.tx(async (tx) => {
       await tx.run(
-        'INSERT INTO sales_returns (item_type,item_id,item_name,quantity,reason,user_id) VALUES (?,?,?,?,?,?)',
-        [itemType, Number(itemId), itemName, Number(quantity), reason, session.id]
+        'INSERT INTO sales_returns (item_type,item_id,item_name,quantity,reason,return_amount,return_profit,user_id) VALUES (?,?,?,?,?,?,?,?)',
+        [itemType, Number(itemId), itemName, Number(quantity), reason, Number(return_amount), return_profit, session.id]
       );
       if (itemType === 'product') {
         await tx.run('UPDATE products SET stock=stock+? WHERE id=?', [Number(quantity), Number(itemId)]);

@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 
+const NPT = { timeZone: 'Asia/Kathmandu' };
+function fmtDate(str, opts = {}) {
+  if (!str) return '';
+  const d = new Date(str.includes('T') || str.endsWith('Z') ? str : str.replace(' ', 'T') + 'Z');
+  return d.toLocaleDateString('en-IN', { ...NPT, ...opts });
+}
+
 const TABS = [
   { id: 'dash',      label: '📊 Dashboard' },
   { id: 'analytics', label: '📈 Analytics' },
@@ -570,7 +577,7 @@ function OwnerPhonesTab() {
                 </div>
                 {p.status === 'sold' && p.sold_at && (
                   <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
-                    Sold {new Date(p.sold_at).toLocaleDateString('en-IN')}
+                    Sold {fmtDate(p.sold_at)}
                   </div>
                 )}
               </div>
@@ -625,7 +632,7 @@ function CostsTab({ products }) {
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{e.product_name}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {e.quantity} units · {new Date(e.created_at).toLocaleDateString('en-IN')}
+                  {e.quantity} units · {fmtDate(e.created_at)}
                 </div>
               </div>
               {e.cost_price ? (
@@ -734,7 +741,7 @@ function RepairsTab() {
                   <span>Profit: <span style={{ color: 'var(--green)', fontWeight: 700 }}>Rs {r.customer_price - r.cost_price}</span></span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(r.created_at).toLocaleDateString('en-IN')}</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(r.created_at)}</span>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
                     onClick={() => setEditing({ id: r.id, customer_price: r.customer_price, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
                     Edit
@@ -1014,7 +1021,7 @@ function OwnerCreditsTab() {
                   )}
                 </div>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+                  {fmtDate(item.created_at, { day: 'numeric', month: 'short', year: '2-digit' })}
                 </span>
               </div>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{name}</div>
@@ -1038,7 +1045,7 @@ function OwnerCreditsTab() {
                 )}
                 {item.credit_cleared && item.credit_cleared_at && (
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    Paid {new Date(item.credit_cleared_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    Paid {fmtDate(item.credit_cleared_at, { day: 'numeric', month: 'short' })}
                   </span>
                 )}
               </div>

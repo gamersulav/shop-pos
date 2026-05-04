@@ -11,13 +11,13 @@ export default async function handler(req, res) {
   if (req.method === 'PUT') {
     const { customer_price, cost_price, status, notes, payment_method } = req.body;
     const fields = [], vals = [];
-    // Staff can update status and notes; owner can also update prices and payment method
-    if (status !== undefined) { fields.push('status=?'); vals.push(status); }
-    if (notes  !== undefined) { fields.push('notes=?');  vals.push(notes); }
+    // Staff can update status, notes, and payment method; owner can also update prices
+    if (status         !== undefined) { fields.push('status=?');         vals.push(status); }
+    if (notes          !== undefined) { fields.push('notes=?');          vals.push(notes); }
+    if (payment_method !== undefined) { fields.push('payment_method=?'); vals.push(payment_method); }
     if (session.role === 'owner') {
-      if (customer_price  !== undefined) { fields.push('customer_price=?');  vals.push(Number(customer_price)); }
-      if (cost_price      !== undefined) { fields.push('cost_price=?');      vals.push(Number(cost_price)); }
-      if (payment_method  !== undefined) { fields.push('payment_method=?');  vals.push(payment_method); }
+      if (customer_price !== undefined) { fields.push('customer_price=?'); vals.push(Number(customer_price)); }
+      if (cost_price     !== undefined) { fields.push('cost_price=?');     vals.push(Number(cost_price)); }
     }
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(id);

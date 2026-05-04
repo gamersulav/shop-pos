@@ -16,6 +16,18 @@ const PAYMENTS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'];
 const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
 const emptyItem = () => ({ productId: '', qty: 1, price: 0, name: '' });
 
+const NPT = { timeZone: 'Asia/Kathmandu' };
+function fmtDate(str, opts = {}) {
+  if (!str) return '';
+  const d = new Date(str.includes('T') || str.endsWith('Z') ? str : str.replace(' ', 'T') + 'Z');
+  return d.toLocaleDateString('en-IN', { ...NPT, ...opts });
+}
+function fmtDateTime(str) {
+  if (!str) return '';
+  const d = new Date(str.includes('T') || str.endsWith('Z') ? str : str.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('en-IN', { ...NPT, dateStyle: 'short', timeStyle: 'short' });
+}
+
 export default function Staff() {
   const router = useRouter();
   const [tab, setTab]           = useState('sale');
@@ -590,10 +602,11 @@ function StockTab({ products }) {
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PRODUCT</label>
-          <select value={productId} onChange={e => setProductId(e.target.value)}>
-            <option value="">— Select product —</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <ProductComboBox
+            products={products}
+            value={productId}
+            onChange={val => setProductId(val ? String(val) : '')}
+          />
         </div>
         <div>
           <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>QUANTITY RECEIVED</label>
@@ -643,6 +656,17 @@ function RepairTab() {
     });
     setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+  }
+
+  async function updatePayment(id, payment_method) {
+    setUpdatingId(id);
+    await fetch(`/api/repairs/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payment_method }),
+    });
+    setUpdatingId(null);
+    setRepairs(prev => prev.map(r => r.id === id ? { ...r, payment_method } : r));
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -725,7 +749,7 @@ function RepairTab() {
                   </div>
                 )}
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
-                  {new Date(r.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                  {fmtDateTime(r.created_at)}
                 </div>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>UPDATE STATUS</div>
@@ -736,6 +760,23 @@ function RepairTab() {
                         {s}
                       </button>
                     ))}
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PAYMENT</div>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {PAYMENTS.map(p => {
+                      const cur = r.payment_method || 'Cash';
+                      return (
+                        <button key={p} onClick={() => updatePayment(r.id, p)} disabled={updatingId === r.id || cur === p}
+                          style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)',
+                            background: cur === p ? (p === 'Credit' ? 'rgba(255,176,32,0.15)' : 'rgba(0,212,255,0.12)') : 'transparent',
+                            color: cur === p ? (p === 'Credit' ? 'var(--amber)' : 'var(--cyan)') : 'var(--muted)',
+                            cursor: cur === p ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
+                          {p}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -908,6 +949,7 @@ function ReturnsTab({ products }) {
             itemType="product"
             items={products.map(p => ({ id: p.id, label: p.name }))}
             showQty
+            showAmount
           />
           <ReturnForm
             title="Phone Sales Return"
@@ -916,6 +958,7 @@ function ReturnsTab({ products }) {
             itemType="phone"
             items={soldPhones.map(p => ({ id: p.id, label: `${p.model} · ${p.condition}` }))}
             showQty={false}
+            showAmount
           />
         </div>
       )}
@@ -923,12 +966,13 @@ function ReturnsTab({ products }) {
   );
 }
 
-function ReturnForm({ title, description, endpoint, itemType, items, showQty }) {
-  const [itemId, setItemId]   = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [reason, setReason]   = useState('');
-  const [saving, setSaving]   = useState(false);
-  const [msg, setMsg]         = useState('');
+function ReturnForm({ title, description, endpoint, itemType, items, showQty, showAmount }) {
+  const [itemId, setItemId]         = useState('');
+  const [quantity, setQuantity]     = useState(1);
+  const [reason, setReason]         = useState('');
+  const [returnAmount, setReturnAmount] = useState('');
+  const [saving, setSaving]         = useState(false);
+  const [msg, setMsg]               = useState('');
 
   const selected = items.find(i => i.id === Number(itemId));
 
@@ -938,12 +982,19 @@ function ReturnForm({ title, description, endpoint, itemType, items, showQty }) 
     const r = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemType, itemId: Number(itemId), itemName: selected?.label || '', quantity: Number(quantity), reason }),
+      body: JSON.stringify({
+        itemType,
+        itemId: Number(itemId),
+        itemName: selected?.label || '',
+        quantity: Number(quantity),
+        reason,
+        return_amount: showAmount ? (parseFloat(returnAmount) || 0) : 0,
+      }),
     });
     setSaving(false);
     if (!r.ok) { alert('Failed'); return; }
     setMsg(`✓ Return recorded for: ${selected?.label}`);
-    setItemId(''); setQuantity(1); setReason('');
+    setItemId(''); setQuantity(1); setReason(''); setReturnAmount('');
     setTimeout(() => setMsg(''), 4000);
   }
 
@@ -964,6 +1015,13 @@ function ReturnForm({ title, description, endpoint, itemType, items, showQty }) 
         <div>
           <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>QUANTITY</label>
           <input type="number" min="1" value={quantity} onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} style={{ textAlign: 'center', fontSize: 18, fontWeight: 700 }} />
+        </div>
+      )}
+      {showAmount && (
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>AMOUNT REFUNDED (Rs)</label>
+          <input type="number" min="0" placeholder="Amount customer paid (after any discounts)" value={returnAmount}
+            onChange={e => setReturnAmount(e.target.value)} style={{ textAlign: 'right', fontSize: 16 }} />
         </div>
       )}
       <div>
@@ -1059,7 +1117,7 @@ function CreditsTab() {
                   {typeLabel}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  {new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {fmtDate(item.created_at, { day: 'numeric', month: 'short' })}
                 </span>
               </div>
               <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{name}</div>
