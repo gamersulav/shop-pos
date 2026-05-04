@@ -8,14 +8,16 @@ const TABS = [
   { id: 'stock',    label: '📦 Stock' },
   { id: 'repair',   label: '🔧 Repair' },
   { id: 'products', label: '🏷 Products' },
+  { id: 'returns',  label: '↩ Returns' },
 ];
 
 const PAYMENTS = ['Cash', 'eSewa', 'FonePay', 'Bank'];
+const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
 const emptyItem = () => ({ productId: '', qty: 1, price: 0, name: '' });
 
 export default function Staff() {
   const router = useRouter();
-  const [tab, setTab]         = useState('sale');
+  const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function Staff() {
         <div className="tab-bar">
           {TABS.map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 11 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 10 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
@@ -59,6 +61,7 @@ export default function Staff() {
           {tab === 'stock'    && <StockTab    products={products} />}
           {tab === 'repair'   && <RepairTab />}
           {tab === 'products' && <StaffProductsTab products={products} reload={loadProducts} />}
+          {tab === 'returns'  && <ReturnsTab  products={products} />}
         </div>
       </div>
     </>
@@ -67,13 +70,16 @@ export default function Staff() {
 
 // ─── SALE TAB ────────────────────────────────────────────────────────────────
 function SaleTab({ products }) {
-  const [items, setItems]     = useState([emptyItem(), emptyItem()]);
-  const [payment, setPayment] = useState('Cash');
-  const [saving, setSaving]   = useState(false);
-  const [done, setDone]       = useState(false);
+  const [items, setItems]         = useState([emptyItem(), emptyItem()]);
+  const [payment, setPayment]     = useState('Cash');
+  const [billDiscount, setBillDiscount] = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [done, setDone]           = useState(false);
 
   const activeItems = items.filter(i => i.productId);
-  const total = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
+  const subtotal    = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
+  const discAmt     = Math.min(Math.max(0, parseFloat(billDiscount) || 0), subtotal);
+  const total       = subtotal - discAmt;
 
   function setItem(idx, field, val) {
     setItems(prev => {
@@ -95,12 +101,12 @@ function SaleTab({ products }) {
     const res = await fetch('/api/sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: filled, payment }),
+      body: JSON.stringify({ items: filled, payment, billDiscount: discAmt }),
     });
     setSaving(false);
     if (res.ok) {
       setDone(true);
-      setTimeout(() => { setItems([emptyItem(), emptyItem()]); setPayment('Cash'); setDone(false); }, 1800);
+      setTimeout(() => { setItems([emptyItem(), emptyItem()]); setPayment('Cash'); setBillDiscount(''); setDone(false); }, 1800);
     } else alert('Error saving sale. Try again.');
   }
 
@@ -110,7 +116,7 @@ function SaleTab({ products }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>New Sale</h2>
-        <span style={{ color: 'var(--muted)', fontSize: 13 }}>{items.length} items</span>
+        <span style={{ color: 'var(--muted)', fontSize: 13 }}>{items.length} rows</span>
       </div>
 
       {items.map((item, idx) => (
@@ -135,14 +141,14 @@ function SaleTab({ products }) {
             </div>
             <div style={{ flex: 1.5 }}>
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>PRICE (Rs)</label>
-              <input type="number" value={item.price}
-                onChange={e => setItem(idx, 'price', parseFloat(e.target.value) || 0)}
-                style={{ textAlign: 'right', fontWeight: 700, fontSize: 18, color: item.price ? 'var(--cyan)' : 'var(--muted)' }} />
+              <div style={{ padding: '12px 14px', background: '#12122a', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 18, fontWeight: 700, color: item.price ? 'var(--cyan)' : 'var(--muted)', textAlign: 'right' }}>
+                {item.price ? `Rs ${item.price}` : '—'}
+              </div>
             </div>
           </div>
           {item.productId && (
             <div style={{ textAlign: 'right', marginTop: 6, fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
-              Subtotal: Rs {(item.price * item.qty).toFixed(0)}
+              Rs {(item.price * item.qty).toFixed(0)}
             </div>
           )}
         </div>
@@ -154,12 +160,8 @@ function SaleTab({ products }) {
       </button>
 
       <div className="card" style={{ marginBottom: 16, background: 'rgba(0,212,255,0.05)', borderColor: 'rgba(0,212,255,0.2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>Total</span>
-          <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--cyan)' }}>Rs {total.toFixed(0)}</span>
-        </div>
         {activeItems.length > 0 && (
-          <div style={{ marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          <div style={{ marginBottom: 10, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
             {activeItems.map((it, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 2 }}>
                 <span>{it.name} × {it.qty}</span>
@@ -168,6 +170,19 @@ function SaleTab({ products }) {
             ))}
           </div>
         )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount (Rs)</span>
+          <input type="number" min="0" placeholder="0"
+            value={billDiscount} onChange={e => setBillDiscount(e.target.value)}
+            style={{ flex: 1, textAlign: 'right', fontSize: 16 }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Total</span>
+          <div style={{ textAlign: 'right' }}>
+            {discAmt > 0 && <div style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through' }}>Rs {subtotal.toFixed(0)}</div>}
+            <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--cyan)' }}>Rs {total.toFixed(0)}</span>
+          </div>
+        </div>
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -189,12 +204,14 @@ function SaleTab({ products }) {
 
 // ─── PHONES TAB ───────────────────────────────────────────────────────────────
 function PhonesTab() {
-  const [phones, setPhones]     = useState([]);
-  const [view, setView]         = useState('list'); // 'list' | 'stockin' | 'selling'
-  const [selling, setSelling]   = useState(null);
-  const [payment, setPayment]   = useState('Cash');
-  const [saving, setSaving]     = useState(false);
-  const [done, setDone]         = useState('');
+  const [phones, setPhones]       = useState([]);
+  const [view, setView]           = useState('list');
+  const [selling, setSelling]     = useState(null);
+  const [payment, setPayment]     = useState('Cash');
+  const [phoneDiscount, setPhoneDiscount] = useState('');
+  const [saving, setSaving]       = useState(false);
+  const [done, setDone]           = useState('');
+  const [sortBy, setSortBy]       = useState('recents');
   const [stockForm, setStockForm] = useState({ model: '', condition: 'Good', notes: '' });
 
   useEffect(() => { loadPhones(); }, []);
@@ -205,6 +222,15 @@ function PhonesTab() {
 
   const available     = phones.filter(p => p.status === 'available' && Number(p.selling_price) > 0);
   const awaitingPrice = phones.filter(p => p.status === 'available' && !Number(p.selling_price));
+
+  function sortedAvailable() {
+    const list = [...available];
+    if (sortBy === 'name')       return list.sort((a, b) => a.model.localeCompare(b.model));
+    if (sortBy === 'price_asc')  return list.sort((a, b) => Number(a.selling_price) - Number(b.selling_price));
+    if (sortBy === 'price_desc') return list.sort((a, b) => Number(b.selling_price) - Number(a.selling_price));
+    if (sortBy === 'oldest')     return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    return list; // recents (default DESC from API)
+  }
 
   async function stockIn() {
     if (!stockForm.model.trim()) { alert('Enter phone model'); return; }
@@ -225,16 +251,18 @@ function PhonesTab() {
   }
 
   async function sellPhone() {
+    const discAmt = Math.min(Math.max(0, parseFloat(phoneDiscount) || 0), Number(selling.selling_price));
     setSaving(true);
     const res = await fetch(`/api/phones/${selling.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment }),
+      body: JSON.stringify({ payment, discount: discAmt }),
     });
     setSaving(false);
     if (res.ok) {
       setDone('sold');
       setSelling(null);
+      setPhoneDiscount('');
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
@@ -246,18 +274,30 @@ function PhonesTab() {
 
   // ── Sell confirmation screen
   if (view === 'selling' && selling) {
+    const discAmt  = Math.min(Math.max(0, parseFloat(phoneDiscount) || 0), Number(selling.selling_price));
+    const finalAmt = Number(selling.selling_price) - discAmt;
     return (
       <div>
-        <button onClick={() => { setView('list'); setSelling(null); }}
+        <button onClick={() => { setView('list'); setSelling(null); setPhoneDiscount(''); }}
           style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, marginBottom: 16, padding: 0 }}>
           ← Back
         </button>
         <div className="card" style={{ marginBottom: 16, background: 'rgba(0,230,118,0.05)', borderColor: 'rgba(0,230,118,0.2)' }}>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Selling</div>
           <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>{selling.model}</div>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Condition: {selling.condition}</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--green)', marginTop: 10 }}>
-            Rs {Number(selling.selling_price).toLocaleString()}
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Condition: {selling.condition}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount (Rs)</span>
+            <input type="number" min="0" max={selling.selling_price} placeholder="0"
+              value={phoneDiscount} onChange={e => setPhoneDiscount(e.target.value)}
+              style={{ flex: 1, textAlign: 'right', fontSize: 16 }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: 'var(--muted)', fontSize: 13 }}>Sale Price</span>
+            <div style={{ textAlign: 'right' }}>
+              {discAmt > 0 && <div style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through' }}>Rs {Number(selling.selling_price).toLocaleString()}</div>}
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--green)' }}>Rs {finalAmt.toLocaleString()}</div>
+            </div>
           </div>
         </div>
 
@@ -271,7 +311,7 @@ function PhonesTab() {
         </div>
 
         <button className="btn btn-green" onClick={sellPhone} disabled={saving} style={{ fontSize: 17, minHeight: 58 }}>
-          {saving ? 'Processing…' : '✅ Confirm Sale'}
+          {saving ? 'Processing…' : `✅ Confirm Sale · Rs ${finalAmt.toLocaleString()}`}
         </button>
       </div>
     );
@@ -295,10 +335,7 @@ function PhonesTab() {
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CONDITION</label>
             <select value={stockForm.condition} onChange={e => setStockForm(f => ({ ...f, condition: e.target.value }))}>
-              <option>Excellent</option>
-              <option>Good</option>
-              <option>Fair</option>
-              <option>Poor</option>
+              <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
             </select>
           </div>
           <div>
@@ -318,6 +355,7 @@ function PhonesTab() {
   }
 
   // ── Main list
+  const sorted = sortedAvailable();
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -342,13 +380,28 @@ function PhonesTab() {
         </div>
       )}
 
-      <SectionLabel>READY TO SELL ({available.length})</SectionLabel>
-      {available.length === 0 && (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <SectionLabel>READY TO SELL ({available.length})</SectionLabel>
+      </div>
+
+      {/* Sort controls */}
+      {available.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {[['recents','Recent'],['oldest','Oldest'],['name','Name'],['price_asc','Price ↑'],['price_desc','Price ↓']].map(([v,l]) => (
+            <button key={v} onClick={() => setSortBy(v)}
+              style={{ padding: '5px 11px', fontSize: 11, fontWeight: 700, borderRadius: 20, border: '1.5px solid var(--border)', background: sortBy === v ? 'var(--cyan)' : 'transparent', color: sortBy === v ? '#000' : 'var(--muted)', cursor: 'pointer' }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {sorted.length === 0 && (
         <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--muted)', fontSize: 14 }}>
           No phones ready to sell.<br />Stock in a phone or ask owner to set prices.
         </div>
       )}
-      {available.map(p => (
+      {sorted.map(p => (
         <div key={p.id} className="card" style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
@@ -363,7 +416,7 @@ function PhonesTab() {
             </div>
           </div>
           <button className="btn btn-green" style={{ minHeight: 44 }}
-            onClick={() => { setSelling(p); setPayment('Cash'); setView('selling'); }}>
+            onClick={() => { setSelling(p); setPayment('Cash'); setPhoneDiscount(''); setView('selling'); }}>
             💰 Sell This Phone
           </button>
         </div>
@@ -424,10 +477,36 @@ function StockTab({ products }) {
 
 // ─── REPAIR TAB ───────────────────────────────────────────────────────────────
 function RepairTab() {
+  const [view, setView]     = useState('list'); // 'list' | 'add'
+  const [repairs, setRepairs] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [loadingList, setLoadingList]   = useState(false);
+  const [updatingId, setUpdatingId]     = useState(null);
+
   const init = { customer: '', phone: '', issue: '', customerPrice: '', status: 'Pending' };
   const [form, setForm]   = useState(init);
   const [saving, setSaving] = useState(false);
   const [done, setDone]   = useState(false);
+
+  useEffect(() => { if (view === 'list') loadRepairs(); }, [view]);
+
+  async function loadRepairs() {
+    setLoadingList(true);
+    const r = await fetch('/api/repairs');
+    setRepairs(await r.json());
+    setLoadingList(false);
+  }
+
+  async function updateStatus(id, status) {
+    setUpdatingId(id);
+    await fetch(`/api/repairs/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    setUpdatingId(null);
+    setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+  }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -440,37 +519,105 @@ function RepairTab() {
       body: JSON.stringify({ customer_name: form.customer, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status }),
     });
     setSaving(false);
-    if (res.ok) { setDone(true); setTimeout(() => { setForm(init); setDone(false); }, 1800); }
+    if (res.ok) { setDone(true); setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1500); }
     else alert('Error saving. Try again.');
   }
+
+  const filtered = statusFilter === 'all' ? repairs : repairs.filter(r => r.status === statusFilter);
+
+  const statusColor = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
+  const statusBg    = { Pending: 'rgba(255,176,32,0.12)', 'In Progress': 'rgba(0,212,255,0.12)', Done: 'rgba(0,230,118,0.12)', Delivered: 'rgba(112,112,160,0.12)' };
 
   if (done) return <SuccessScreen emoji="🔧" title="Repair Added!" />;
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 18px', fontSize: 18, fontWeight: 700 }}>Add Repair</h2>
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {[['CUSTOMER NAME', 'customer', 'text', 'e.g. Ram Bahadur'], ['PHONE MODEL', 'phone', 'text', 'e.g. iPhone 14 Pro'], ['CUSTOMER PRICE (Rs)', 'customerPrice', 'number', '0']].map(([lbl, key, type, ph]) => (
-          <div key={key}>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>{lbl}</label>
-            <input type={type} placeholder={ph} value={form[key]} onChange={e => set(key, e.target.value)} />
-          </div>
-        ))}
-        <div>
-          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>ISSUE</label>
-          <textarea value={form.issue} onChange={e => set('issue', e.target.value)} placeholder="Describe the problem…" rows={3}
-            style={{ background: '#12122a', border: '1.5px solid var(--border)', color: 'var(--text)', borderRadius: 10, padding: '12px 14px', fontSize: 15, width: '100%', outline: 'none', resize: 'vertical' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Repairs</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setView('list')} className={`btn btn-sm ${view === 'list' ? 'btn-cyan' : 'btn-ghost'}`} style={{ width: 'auto', padding: '7px 14px' }}>List</button>
+          <button onClick={() => setView('add')}  className={`btn btn-sm ${view === 'add'  ? 'btn-cyan' : 'btn-ghost'}`} style={{ width: 'auto', padding: '7px 14px' }}>+ Add</button>
         </div>
-        <div>
-          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STATUS</label>
-          <select value={form.status} onChange={e => set('status', e.target.value)}>
-            <option>Pending</option><option>In Progress</option><option>Done</option><option>Delivered</option>
-          </select>
-        </div>
-        <button className="btn btn-cyan" onClick={saveRepair} disabled={saving}>
-          {saving ? 'Saving…' : '🔧 Save Repair'}
-        </button>
       </div>
+
+      {/* ── List view ── */}
+      {view === 'list' && (
+        <div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {[['all','All'],['Pending','Pending'],['In Progress','In Progress'],['Done','Done'],['Delivered','Delivered']].map(([v,l]) => (
+              <button key={v} onClick={() => setStatusFilter(v)}
+                style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 20, border: '1.5px solid var(--border)', background: statusFilter === v ? 'var(--cyan)' : 'transparent', color: statusFilter === v ? '#000' : 'var(--muted)', cursor: 'pointer' }}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {loadingList && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Loading…</div>}
+          {!loadingList && filtered.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>No repairs found</div>}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {filtered.map(r => (
+              <div key={r.id} className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{r.customer_name}</div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{r.phone_model}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 4 }}>{r.issue}</div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: statusBg[r.status], color: statusColor[r.status], whiteSpace: 'nowrap', marginLeft: 8 }}>
+                    {r.status}
+                  </span>
+                </div>
+                {r.customer_price > 0 && (
+                  <div style={{ fontSize: 13, color: 'var(--cyan)', fontWeight: 600, marginBottom: 8 }}>
+                    Rs {Number(r.customer_price).toLocaleString()}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+                  {new Date(r.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>UPDATE STATUS</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {STATUSES.map(s => (
+                      <button key={s} onClick={() => updateStatus(r.id, s)} disabled={updatingId === r.id || r.status === s}
+                        style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)', background: r.status === s ? statusBg[s] : 'transparent', color: r.status === s ? statusColor[s] : 'var(--muted)', cursor: r.status === s ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Add view ── */}
+      {view === 'add' && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {[['CUSTOMER NAME', 'customer', 'text', 'e.g. Ram Bahadur'], ['PHONE MODEL', 'phone', 'text', 'e.g. iPhone 14 Pro'], ['CUSTOMER PRICE (Rs)', 'customerPrice', 'number', '0']].map(([lbl, key, type, ph]) => (
+            <div key={key}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>{lbl}</label>
+              <input type={type} placeholder={ph} value={form[key]} onChange={e => set(key, e.target.value)} />
+            </div>
+          ))}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>ISSUE</label>
+            <textarea value={form.issue} onChange={e => set('issue', e.target.value)} placeholder="Describe the problem…" rows={3}
+              style={{ background: '#12122a', border: '1.5px solid var(--border)', color: 'var(--text)', borderRadius: 10, padding: '12px 14px', fontSize: 15, width: '100%', outline: 'none', resize: 'vertical' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STATUS</label>
+            <select value={form.status} onChange={e => set('status', e.target.value)}>
+              {STATUSES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <button className="btn btn-cyan" onClick={saveRepair} disabled={saving}>
+            {saving ? 'Saving…' : '🔧 Save Repair'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -547,6 +694,127 @@ function StaffProductsTab({ products, reload }) {
   );
 }
 
+// ─── RETURNS TAB ─────────────────────────────────────────────────────────────
+function ReturnsTab({ products }) {
+  const [subTab, setSubTab] = useState('purchase');
+  const [phones, setPhones] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/phones').then(r => r.json()).then(setPhones);
+  }, []);
+
+  const availablePhones = phones.filter(p => p.status === 'available');
+  const soldPhones      = phones.filter(p => p.status === 'sold');
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Returns</h2>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+        {[['purchase','↩ Purchase Return'],['salesreturn','↩ Sales Return']].map(([v,l]) => (
+          <button key={v} onClick={() => setSubTab(v)}
+            className={`btn btn-sm ${subTab === v ? 'btn-cyan' : 'btn-ghost'}`} style={{ flex: 1 }}>{l}</button>
+        ))}
+      </div>
+
+      {subTab === 'purchase' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <ReturnForm
+            title="Product Purchase Return"
+            description="Returning accessories/products to supplier — stock will be deducted."
+            endpoint="/api/returns/purchase"
+            itemType="product"
+            items={products.map(p => ({ id: p.id, label: `${p.name} (stock: ${p.stock})` }))}
+            showQty
+          />
+          <ReturnForm
+            title="Phone Purchase Return"
+            description="Returning a stocked phone back to supplier."
+            endpoint="/api/returns/purchase"
+            itemType="phone"
+            items={availablePhones.map(p => ({ id: p.id, label: `${p.model} · ${p.condition}` }))}
+            showQty={false}
+          />
+        </div>
+      )}
+
+      {subTab === 'salesreturn' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <ReturnForm
+            title="Product Sales Return"
+            description="Customer returning an accessory — stock will be added back."
+            endpoint="/api/returns/sales"
+            itemType="product"
+            items={products.map(p => ({ id: p.id, label: p.name }))}
+            showQty
+          />
+          <ReturnForm
+            title="Phone Sales Return"
+            description="Customer returning a phone — phone will go back to available."
+            endpoint="/api/returns/sales"
+            itemType="phone"
+            items={soldPhones.map(p => ({ id: p.id, label: `${p.model} · ${p.condition}` }))}
+            showQty={false}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReturnForm({ title, description, endpoint, itemType, items, showQty }) {
+  const [itemId, setItemId]   = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [reason, setReason]   = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [msg, setMsg]         = useState('');
+
+  const selected = items.find(i => i.id === Number(itemId));
+
+  async function submit() {
+    if (!itemId) { alert('Select an item'); return; }
+    setSaving(true);
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemType, itemId: Number(itemId), itemName: selected?.label || '', quantity: Number(quantity), reason }),
+    });
+    setSaving(false);
+    if (!r.ok) { alert('Failed'); return; }
+    setMsg(`✓ Return recorded for: ${selected?.label}`);
+    setItemId(''); setQuantity(1); setReason('');
+    setTimeout(() => setMsg(''), 4000);
+  }
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--cyan)' }}>{title}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{description}</div>
+      {msg && <AlertBox color="green" text={msg} />}
+      <div>
+        <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>SELECT ITEM</label>
+        <select value={itemId} onChange={e => setItemId(e.target.value)}>
+          <option value="">— Select —</option>
+          {items.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+        </select>
+        {items.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>No items available</div>}
+      </div>
+      {showQty && (
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>QUANTITY</label>
+          <input type="number" min="1" value={quantity} onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} style={{ textAlign: 'center', fontSize: 18, fontWeight: 700 }} />
+        </div>
+      )}
+      <div>
+        <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>REASON (optional)</label>
+        <input type="text" placeholder="e.g. Defective, wrong item…" value={reason} onChange={e => setReason(e.target.value)} />
+      </div>
+      <button className="btn btn-cyan" onClick={submit} disabled={saving || !itemId}>
+        {saving ? 'Recording…' : 'Record Return'}
+      </button>
+    </div>
+  );
+}
+
 // ─── SHARED ───────────────────────────────────────────────────────────────────
 function SuccessScreen({ emoji, title, sub }) {
   return (
@@ -566,7 +834,7 @@ function AlertBox({ color, text }) {
   const c = color === 'green' ? { bg: 'rgba(0,230,118,0.12)', border: 'rgba(0,230,118,0.3)', text: 'var(--green)' }
                               : { bg: 'rgba(255,176,32,0.12)', border: 'rgba(255,176,32,0.3)', text: 'var(--amber)' };
   return (
-    <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 14, color: c.text, fontWeight: 600 }}>
+    <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, fontSize: 14, color: c.text, fontWeight: 600 }}>
       ✅ {text}
     </div>
   );

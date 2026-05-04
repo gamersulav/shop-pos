@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
   // ── Staff: sell a phone ───────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { payment } = req.body;
+    const { payment, discount = 0 } = req.body;
     if (!payment) return res.status(400).json({ error: 'Payment method required' });
 
     const phone = await db.queryOne('SELECT * FROM used_phones WHERE id=?', [id]);
@@ -33,14 +33,17 @@ export default async function handler(req, res) {
     if (phone.status === 'sold') return res.status(400).json({ error: 'Phone already sold' });
     if (!Number(phone.selling_price)) return res.status(400).json({ error: 'Phone not priced yet' });
 
+    const discAmt  = Math.min(Math.max(0, Number(discount)), Number(phone.selling_price));
+    const saleTotal = Number(phone.selling_price) - discAmt;
+
     const saleId = await db.tx(async (tx) => {
       const { lastId } = await tx.run(
-        'INSERT INTO sales (payment_method,total_amount,user_id) VALUES (?,?,?)',
-        [payment, Number(phone.selling_price), session.id]
+        'INSERT INTO sales (payment_method,total_amount,discount_amount,user_id) VALUES (?,?,?,?)',
+        [payment, saleTotal, discAmt, session.id]
       );
       await tx.run(
-        'INSERT INTO sale_items (sale_id,product_id,product_name,quantity,unit_price,cost_price) VALUES (?,?,?,?,?,?)',
-        [lastId, null, phone.model, 1, Number(phone.selling_price), Number(phone.cost_price)]
+        'INSERT INTO sale_items (sale_id,product_id,product_name,quantity,unit_price,cost_price,item_discount) VALUES (?,?,?,?,?,?,?)',
+        [lastId, null, phone.model, 1, Number(phone.selling_price), Number(phone.cost_price), discAmt]
       );
       await tx.run(
         "UPDATE used_phones SET status='sold', sold_in_sale=?, sold_at=datetime('now') WHERE id=?",

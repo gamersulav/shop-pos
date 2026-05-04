@@ -17,23 +17,24 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { items, payment } = req.body;
+    const { items, payment, billDiscount = 0 } = req.body;
     if (!items?.length) return res.status(400).json({ error: 'No items' });
 
-    const total = items.reduce((s, i) => s + i.price * i.qty, 0);
-
     const saleId = await db.tx(async (tx) => {
+      const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+      const discAmt  = Math.min(Math.max(0, Number(billDiscount)), subtotal);
+      const total    = subtotal - discAmt;
+
       const { lastId } = await tx.run(
-        'INSERT INTO sales (payment_method,total_amount,user_id) VALUES (?,?,?)',
-        [payment, total, session.id]
+        'INSERT INTO sales (payment_method,total_amount,discount_amount,user_id) VALUES (?,?,?,?)',
+        [payment, total, discAmt, session.id]
       );
       for (const item of items) {
         const pid  = Number(item.productId);
         const prod = await tx.queryOne('SELECT * FROM products WHERE id=?', [pid]);
-        // Snapshot cost_price at time of sale for accurate profit tracking
         await tx.run(
-          'INSERT INTO sale_items (sale_id,product_id,product_name,quantity,unit_price,cost_price) VALUES (?,?,?,?,?,?)',
-          [lastId, pid, prod ? prod.name : 'Unknown', item.qty, item.price, prod ? Number(prod.cost_price) : 0]
+          'INSERT INTO sale_items (sale_id,product_id,product_name,quantity,unit_price,cost_price,item_discount) VALUES (?,?,?,?,?,?,?)',
+          [lastId, pid, prod ? prod.name : 'Unknown', item.qty, item.price, prod ? Number(prod.cost_price) : 0, 0]
         );
         if (prod) await tx.run('UPDATE products SET stock=stock-? WHERE id=?', [item.qty, pid]);
       }
