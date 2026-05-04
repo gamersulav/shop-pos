@@ -13,11 +13,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { customer_name, phone_model, issue, customer_price = 0, status = 'Pending' } = req.body;
+    const { customer_name, phone_model, issue, customer_price = 0, status = 'Pending', payment_method = 'Cash' } = req.body;
     if (!customer_name || !phone_model || !issue) return res.status(400).json({ error: 'Missing fields' });
     const { lastId } = await db.run(
-      'INSERT INTO repairs (customer_name,phone_model,issue,customer_price,status,user_id) VALUES (?,?,?,?,?,?)',
-      [customer_name, phone_model, issue, Number(customer_price), status, session.id]
+      'INSERT INTO repairs (customer_name,phone_model,issue,customer_price,status,payment_method,user_id) VALUES (?,?,?,?,?,?,?)',
+      [customer_name, phone_model, issue, Number(customer_price), status, payment_method, session.id]
     );
     return res.json({ ok: true, id: lastId });
   }

@@ -9,6 +9,7 @@ const TABS = [
   { id: 'phones',    label: '📱 Phones' },
   { id: 'costs',     label: '💲 Costs' },
   { id: 'repairs',   label: '🔧 Repairs' },
+  { id: 'credits',   label: '💳 Credits' },
 ];
 
 export default function Owner() {
@@ -54,10 +55,10 @@ export default function Owner() {
         {showChangePw && <ChangePasswordModal onClose={() => setShowChangePw(false)} />}
 
         {/* Tab bar */}
-        <div className="tab-bar">
+        <div className="tab-bar" style={{ overflowX: 'auto' }}>
           {TABS.map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 10 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 10, minWidth: 60 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
@@ -71,6 +72,7 @@ export default function Owner() {
           {tab === 'phones'    && <OwnerPhonesTab />}
           {tab === 'costs'     && <CostsTab products={products} />}
           {tab === 'repairs'   && <RepairsTab />}
+          {tab === 'credits'   && <OwnerCreditsTab />}
         </div>
       </div>
     </>
@@ -698,6 +700,12 @@ function RepairsTab() {
                     <option>Pending</option><option>In Progress</option><option>Done</option><option>Delivered</option>
                   </select>
                 </div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>PAYMENT METHOD</label>
+                  <select value={editing.payment_method || 'Cash'} onChange={e => setEditing(ed => ({ ...ed, payment_method: e.target.value }))}>
+                    {['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'].map(m => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-green btn-sm" style={{ flex: 1 }} onClick={() => saveRepair(r.id)} disabled={saving}>Save</button>
                   <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setEditing(null)}>Cancel</button>
@@ -707,7 +715,14 @@ function RepairsTab() {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{r.customer_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{r.customer_name}</div>
+                      {r.payment_method === 'Credit' && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: 'rgba(255,176,32,0.15)', color: 'var(--amber)' }}>
+                          CREDIT{r.credit_cleared ? ' ✓' : ''}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ color: 'var(--muted)', fontSize: 12 }}>{r.phone_model}</div>
                   </div>
                   <StatusBadge status={r.status} />
@@ -721,7 +736,7 @@ function RepairsTab() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(r.created_at).toLocaleDateString('en-IN')}</span>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
-                    onClick={() => setEditing({ id: r.id, customer_price: r.customer_price, cost_price: r.cost_price, status: r.status, notes: r.notes || '' })}>
+                    onClick={() => setEditing({ id: r.id, customer_price: r.customer_price, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
                     Edit
                   </button>
                 </div>
@@ -898,6 +913,139 @@ function AnalyticsTab() {
           * Revenue and profit shown only for Done/Delivered repairs. Count includes all statuses.
         </p>
       )}
+    </div>
+  );
+}
+
+// ─── OWNER CREDITS TAB ───────────────────────────────────────────────────────
+function OwnerCreditsTab() {
+  const [credits, setCredits] = useState({ sales: [], repairs: [] });
+  const [filter, setFilter]   = useState('pending'); // 'pending' | 'all'
+  const [clearing, setClearing] = useState(null);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => { loadCredits(); }, []);
+
+  async function loadCredits() {
+    setLoading(true);
+    const r = await fetch('/api/credits?all=1');
+    setCredits(await r.json());
+    setLoading(false);
+  }
+
+  async function clearCredit(type, id) {
+    setClearing(`${type}-${id}`);
+    await fetch('/api/credits', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, id }),
+    });
+    setClearing(null);
+    loadCredits();
+  }
+
+  const allItems = [
+    ...(credits.sales  || []).map(s => ({ ...s, _type: 'sale' })),
+    ...(credits.repairs || []).map(r => ({ ...r, _type: 'repair' })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const displayed = filter === 'pending' ? allItems.filter(i => !i.credit_cleared) : allItems;
+  const pending   = allItems.filter(i => !i.credit_cleared);
+  const totalPending = pending.reduce((s, i) => s + Number(i._type === 'sale' ? i.total_amount : i.customer_price), 0);
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Loading…</div>;
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>Credits</h2>
+
+      {/* Summary */}
+      <div className="card" style={{ marginBottom: 16, background: pending.length > 0 ? 'rgba(255,176,32,0.06)' : 'rgba(0,230,118,0.06)', borderColor: pending.length > 0 ? 'rgba(255,176,32,0.25)' : 'rgba(0,230,118,0.25)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>{pending.length}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Pending</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--amber)' }}>Rs {totalPending.toLocaleString()}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Outstanding</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['pending', 'Pending'], ['all', 'All History']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setFilter(v)}
+            className={`btn btn-sm ${filter === v ? 'btn-amber' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {displayed.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 14 }}>
+          {filter === 'pending' ? '✅ No pending credits!' : 'No credit records yet'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {displayed.map(item => {
+          const key = `${item._type}-${item.id}`;
+          const isClearing = clearing === key;
+          const amount = Number(item._type === 'sale' ? item.total_amount : item.customer_price);
+          const name   = item._type === 'sale' ? (item.credit_customer || 'Unknown') : item.customer_name;
+          const typeLabel = item._type === 'repair' ? 'REPAIR' : 'SALE';
+
+          return (
+            <div key={key} className="card" style={{ opacity: item.credit_cleared ? 0.6 : 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+                    background: item._type === 'repair' ? 'rgba(176,96,255,0.12)' : 'rgba(0,212,255,0.12)',
+                    color: item._type === 'repair' ? 'var(--purple)' : 'var(--cyan)' }}>
+                    {typeLabel}
+                  </span>
+                  {item.credit_cleared ? (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,230,118,0.12)', color: 'var(--green)' }}>PAID</span>
+                  ) : (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'rgba(255,176,32,0.12)', color: 'var(--amber)' }}>PENDING</span>
+                  )}
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  {new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+                </span>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{name}</div>
+              {item._type === 'sale' && item.items_summary && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>{item.items_summary}</div>
+              )}
+              {item._type === 'repair' && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                  {item.phone_model} — {item.issue?.slice(0, 50)}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color: item.credit_cleared ? 'var(--green)' : 'var(--amber)' }}>
+                  Rs {amount.toLocaleString()}
+                </span>
+                {!item.credit_cleared && (
+                  <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '7px 16px' }}
+                    onClick={() => clearCredit(item._type, item.id)} disabled={isClearing}>
+                    {isClearing ? '…' : '✓ Mark Paid'}
+                  </button>
+                )}
+                {item.credit_cleared && item.credit_cleared_at && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    Paid {new Date(item.credit_cleared_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { items, payment, billDiscount = 0 } = req.body;
+    const { items, payment, billDiscount = 0, creditCustomer = '' } = req.body;
     if (!items?.length) return res.status(400).json({ error: 'No items' });
 
     const saleId = await db.tx(async (tx) => {
@@ -26,8 +26,8 @@ export default async function handler(req, res) {
       const total    = subtotal - discAmt;
 
       const { lastId } = await tx.run(
-        'INSERT INTO sales (payment_method,total_amount,discount_amount,user_id) VALUES (?,?,?,?)',
-        [payment, total, discAmt, session.id]
+        'INSERT INTO sales (payment_method,total_amount,discount_amount,credit_customer,user_id) VALUES (?,?,?,?,?)',
+        [payment, total, discAmt, payment === 'Credit' ? creditCustomer : '', session.id]
       );
       for (const item of items) {
         const pid  = Number(item.productId);

@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
   // ── Staff: sell a phone ───────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { payment, discount = 0 } = req.body;
+    const { payment, discount = 0, creditCustomer = '' } = req.body;
     if (!payment) return res.status(400).json({ error: 'Payment method required' });
 
     const phone = await db.queryOne('SELECT * FROM used_phones WHERE id=?', [id]);
@@ -38,8 +38,8 @@ export default async function handler(req, res) {
 
     const saleId = await db.tx(async (tx) => {
       const { lastId } = await tx.run(
-        'INSERT INTO sales (payment_method,total_amount,discount_amount,user_id) VALUES (?,?,?,?)',
-        [payment, saleTotal, discAmt, session.id]
+        'INSERT INTO sales (payment_method,total_amount,discount_amount,credit_customer,user_id) VALUES (?,?,?,?,?)',
+        [payment, saleTotal, discAmt, payment === 'Credit' ? creditCustomer : '', session.id]
       );
       await tx.run(
         'INSERT INTO sale_items (sale_id,product_id,product_name,quantity,unit_price,cost_price,item_discount) VALUES (?,?,?,?,?,?,?)',

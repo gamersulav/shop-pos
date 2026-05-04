@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 
@@ -9,9 +9,10 @@ const TABS = [
   { id: 'repair',   label: '🔧 Repair' },
   { id: 'products', label: '🏷 Products' },
   { id: 'returns',  label: '↩ Returns' },
+  { id: 'credits',  label: '💳 Credits' },
 ];
 
-const PAYMENTS = ['Cash', 'eSewa', 'FonePay', 'Bank'];
+const PAYMENTS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'];
 const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
 const emptyItem = () => ({ productId: '', qty: 1, price: 0, name: '' });
 
@@ -46,10 +47,10 @@ export default function Staff() {
           <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
         </div>
 
-        <div className="tab-bar">
+        <div className="tab-bar" style={{ overflowX: 'auto' }}>
           {TABS.map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 10 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 10, minWidth: 58 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
@@ -62,19 +63,104 @@ export default function Staff() {
           {tab === 'repair'   && <RepairTab />}
           {tab === 'products' && <StaffProductsTab products={products} reload={loadProducts} />}
           {tab === 'returns'  && <ReturnsTab  products={products} />}
+          {tab === 'credits'  && <CreditsTab />}
         </div>
       </div>
     </>
   );
 }
 
+// ─── PRODUCT COMBO BOX ────────────────────────────────────────────────────────
+function ProductComboBox({ products, value, onChange }) {
+  const selected = products.find(p => p.id === Number(value));
+  const [search, setSearch] = useState(selected ? selected.name : '');
+  const [open, setOpen]     = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!value) setSearch('');
+    else {
+      const p = products.find(p => p.id === Number(value));
+      if (p) setSearch(p.name);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const filtered = search.trim()
+    ? products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    : products;
+
+  function select(p) {
+    onChange(p.id);
+    setSearch(p.name);
+    setOpen(false);
+  }
+
+  function handleInput(e) {
+    setSearch(e.target.value);
+    onChange('');
+    setOpen(true);
+  }
+
+  function clear() {
+    setSearch('');
+    onChange('');
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative', marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          type="text"
+          value={search}
+          onChange={handleInput}
+          onFocus={() => setOpen(true)}
+          placeholder="Search or select product…"
+          style={{ flex: 1 }}
+        />
+        {(search || value) && (
+          <button onMouseDown={clear}
+            style={{ background: 'none', border: '1.5px solid var(--border)', borderRadius: 8, color: 'var(--muted)', padding: '0 12px', cursor: 'pointer', fontSize: 18, flexShrink: 0 }}>
+            ×
+          </button>
+        )}
+      </div>
+      {open && filtered.length > 0 && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#12122a', border: '1.5px solid var(--cyan)', borderRadius: 10, zIndex: 200, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+          {filtered.map(p => (
+            <div key={p.id} onMouseDown={() => select(p)}
+              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: value && p.id === Number(value) ? 'rgba(0,212,255,0.12)' : 'transparent' }}>
+              <span style={{ fontSize: 14 }}>{p.name}</span>
+              <span style={{ fontSize: 12, color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.selling_price}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {open && filtered.length === 0 && search.trim() && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#12122a', border: '1.5px solid var(--border)', borderRadius: 10, zIndex: 200, padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>
+          No products match "{search}"
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SALE TAB ────────────────────────────────────────────────────────────────
 function SaleTab({ products }) {
-  const [items, setItems]         = useState([emptyItem(), emptyItem()]);
-  const [payment, setPayment]     = useState('Cash');
+  const [items, setItems]               = useState([emptyItem(), emptyItem()]);
+  const [payment, setPayment]           = useState('Cash');
   const [billDiscount, setBillDiscount] = useState('');
-  const [saving, setSaving]       = useState(false);
-  const [done, setDone]           = useState(false);
+  const [creditCustomer, setCreditCustomer] = useState('');
+  const [saving, setSaving]             = useState(false);
+  const [done, setDone]                 = useState(false);
 
   const activeItems = items.filter(i => i.productId);
   const subtotal    = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
@@ -97,16 +183,23 @@ function SaleTab({ products }) {
   async function saveSale() {
     const filled = items.filter(i => i.productId && i.qty > 0);
     if (!filled.length) { alert('Add at least one product'); return; }
+    if (payment === 'Credit' && !creditCustomer.trim()) { alert('Enter customer name for credit sale'); return; }
     setSaving(true);
     const res = await fetch('/api/sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: filled, payment, billDiscount: discAmt }),
+      body: JSON.stringify({ items: filled, payment, billDiscount: discAmt, creditCustomer }),
     });
     setSaving(false);
     if (res.ok) {
       setDone(true);
-      setTimeout(() => { setItems([emptyItem(), emptyItem()]); setPayment('Cash'); setBillDiscount(''); setDone(false); }, 1800);
+      setTimeout(() => {
+        setItems([emptyItem(), emptyItem()]);
+        setPayment('Cash');
+        setBillDiscount('');
+        setCreditCustomer('');
+        setDone(false);
+      }, 1800);
     } else alert('Error saving sale. Try again.');
   }
 
@@ -128,10 +221,11 @@ function SaleTab({ products }) {
                 style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 20, padding: 0 }}>×</button>
             )}
           </div>
-          <select value={item.productId} onChange={e => setItem(idx, 'productId', e.target.value)} style={{ marginBottom: 8 }}>
-            <option value="">— Select product —</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <ProductComboBox
+            products={products}
+            value={item.productId}
+            onChange={val => setItem(idx, 'productId', String(val))}
+          />
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>QTY</label>
@@ -185,14 +279,23 @@ function SaleTab({ products }) {
         </div>
       </div>
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: payment === 'Credit' ? 12 : 16 }}>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>PAYMENT METHOD</div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {PAYMENTS.map(p => (
-            <button key={p} className={`pay-btn ${payment === p ? 'selected' : ''}`} onClick={() => setPayment(p)}>{p}</button>
+            <button key={p} className={`pay-btn ${payment === p ? 'selected' : ''}`}
+              style={{ fontSize: 11 }} onClick={() => setPayment(p)}>{p}</button>
           ))}
         </div>
       </div>
+
+      {payment === 'Credit' && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER NAME (required for credit)</label>
+          <input type="text" placeholder="Who is taking on credit?" value={creditCustomer}
+            onChange={e => setCreditCustomer(e.target.value)} />
+        </div>
+      )}
 
       <button className="btn btn-green" onClick={saveSale} disabled={saving || !activeItems.length}
         style={{ fontSize: 17, minHeight: 58, opacity: !activeItems.length ? 0.4 : 1 }}>
@@ -204,15 +307,17 @@ function SaleTab({ products }) {
 
 // ─── PHONES TAB ───────────────────────────────────────────────────────────────
 function PhonesTab() {
-  const [phones, setPhones]       = useState([]);
-  const [view, setView]           = useState('list');
-  const [selling, setSelling]     = useState(null);
-  const [payment, setPayment]     = useState('Cash');
+  const [phones, setPhones]               = useState([]);
+  const [view, setView]                   = useState('list');
+  const [selling, setSelling]             = useState(null);
+  const [payment, setPayment]             = useState('Cash');
   const [phoneDiscount, setPhoneDiscount] = useState('');
-  const [saving, setSaving]       = useState(false);
-  const [done, setDone]           = useState('');
-  const [sortBy, setSortBy]       = useState('recents');
-  const [stockForm, setStockForm] = useState({ model: '', condition: 'Good', notes: '' });
+  const [creditCustomer, setCreditCustomer] = useState('');
+  const [saving, setSaving]               = useState(false);
+  const [done, setDone]                   = useState('');
+  const [sortBy, setSortBy]               = useState('recents');
+  const [search, setSearch]               = useState('');
+  const [stockForm, setStockForm]         = useState({ model: '', condition: 'Good', notes: '' });
 
   useEffect(() => { loadPhones(); }, []);
 
@@ -229,8 +334,12 @@ function PhonesTab() {
     if (sortBy === 'price_asc')  return list.sort((a, b) => Number(a.selling_price) - Number(b.selling_price));
     if (sortBy === 'price_desc') return list.sort((a, b) => Number(b.selling_price) - Number(a.selling_price));
     if (sortBy === 'oldest')     return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    return list; // recents (default DESC from API)
+    return list;
   }
+
+  const filteredPhones = search.trim()
+    ? sortedAvailable().filter(p => p.model.toLowerCase().includes(search.toLowerCase()))
+    : sortedAvailable();
 
   async function stockIn() {
     if (!stockForm.model.trim()) { alert('Enter phone model'); return; }
@@ -251,18 +360,21 @@ function PhonesTab() {
   }
 
   async function sellPhone() {
+    if (payment === 'Credit' && !creditCustomer.trim()) { alert('Enter customer name for credit sale'); return; }
     const discAmt = Math.min(Math.max(0, parseFloat(phoneDiscount) || 0), Number(selling.selling_price));
     setSaving(true);
     const res = await fetch(`/api/phones/${selling.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment, discount: discAmt }),
+      body: JSON.stringify({ payment, discount: discAmt, creditCustomer }),
     });
     setSaving(false);
     if (res.ok) {
       setDone('sold');
       setSelling(null);
       setPhoneDiscount('');
+      setCreditCustomer('');
+      setPayment('Cash');
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
@@ -278,7 +390,7 @@ function PhonesTab() {
     const finalAmt = Number(selling.selling_price) - discAmt;
     return (
       <div>
-        <button onClick={() => { setView('list'); setSelling(null); setPhoneDiscount(''); }}
+        <button onClick={() => { setView('list'); setSelling(null); setPhoneDiscount(''); setCreditCustomer(''); setPayment('Cash'); }}
           style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, marginBottom: 16, padding: 0 }}>
           ← Back
         </button>
@@ -301,14 +413,23 @@ function PhonesTab() {
           </div>
         </div>
 
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: payment === 'Credit' ? 12 : 16 }}>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 700 }}>PAYMENT METHOD</div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {PAYMENTS.map(p => (
-              <button key={p} className={`pay-btn ${payment === p ? 'selected' : ''}`} onClick={() => setPayment(p)}>{p}</button>
+              <button key={p} className={`pay-btn ${payment === p ? 'selected' : ''}`}
+                style={{ fontSize: 11 }} onClick={() => setPayment(p)}>{p}</button>
             ))}
           </div>
         </div>
+
+        {payment === 'Credit' && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER NAME (required for credit)</label>
+            <input type="text" placeholder="Who is taking on credit?" value={creditCustomer}
+              onChange={e => setCreditCustomer(e.target.value)} />
+          </div>
+        )}
 
         <button className="btn btn-green" onClick={sellPhone} disabled={saving} style={{ fontSize: 17, minHeight: 58 }}>
           {saving ? 'Processing…' : `✅ Confirm Sale · Rs ${finalAmt.toLocaleString()}`}
@@ -355,7 +476,6 @@ function PhonesTab() {
   }
 
   // ── Main list
-  const sorted = sortedAvailable();
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -384,6 +504,18 @@ function PhonesTab() {
         <SectionLabel>READY TO SELL ({available.length})</SectionLabel>
       </div>
 
+      {/* Search bar */}
+      {available.length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <input
+            type="text"
+            placeholder="Search phones…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      )}
+
       {/* Sort controls */}
       {available.length > 1 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -396,12 +528,17 @@ function PhonesTab() {
         </div>
       )}
 
-      {sorted.length === 0 && (
+      {filteredPhones.length === 0 && available.length === 0 && (
         <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--muted)', fontSize: 14 }}>
           No phones ready to sell.<br />Stock in a phone or ask owner to set prices.
         </div>
       )}
-      {sorted.map(p => (
+      {filteredPhones.length === 0 && available.length > 0 && search && (
+        <div style={{ textAlign: 'center', padding: '20px', color: 'var(--muted)', fontSize: 14 }}>
+          No phones match "{search}"
+        </div>
+      )}
+      {filteredPhones.map(p => (
         <div key={p.id} className="card" style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
@@ -416,7 +553,7 @@ function PhonesTab() {
             </div>
           </div>
           <button className="btn btn-green" style={{ minHeight: 44 }}
-            onClick={() => { setSelling(p); setPayment('Cash'); setPhoneDiscount(''); setView('selling'); }}>
+            onClick={() => { setSelling(p); setPayment('Cash'); setPhoneDiscount(''); setCreditCustomer(''); setView('selling'); }}>
             💰 Sell This Phone
           </button>
         </div>
@@ -477,13 +614,13 @@ function StockTab({ products }) {
 
 // ─── REPAIR TAB ───────────────────────────────────────────────────────────────
 function RepairTab() {
-  const [view, setView]     = useState('list'); // 'list' | 'add'
+  const [view, setView]     = useState('list');
   const [repairs, setRepairs] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loadingList, setLoadingList]   = useState(false);
   const [updatingId, setUpdatingId]     = useState(null);
 
-  const init = { customer: '', phone: '', issue: '', customerPrice: '', status: 'Pending' };
+  const init = { customer: '', phone: '', issue: '', customerPrice: '', status: 'Pending', payment: 'Cash' };
   const [form, setForm]   = useState(init);
   const [saving, setSaving] = useState(false);
   const [done, setDone]   = useState(false);
@@ -516,7 +653,14 @@ function RepairTab() {
     const res = await fetch('/api/repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customer_name: form.customer, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status }),
+      body: JSON.stringify({
+        customer_name: form.customer,
+        phone_model: form.phone,
+        issue: form.issue,
+        customer_price: parseFloat(form.customerPrice) || 0,
+        status: form.status,
+        payment_method: form.payment,
+      }),
     });
     setSaving(false);
     if (res.ok) { setDone(true); setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1500); }
@@ -560,7 +704,14 @@ function RepairTab() {
               <div key={r.id} className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{r.customer_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{r.customer_name}</div>
+                      {r.payment_method === 'Credit' && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: 'rgba(255,176,32,0.15)', color: 'var(--amber)' }}>
+                          CREDIT{r.credit_cleared ? ' ✓' : ''}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{r.phone_model}</div>
                     <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 4 }}>{r.issue}</div>
                   </div>
@@ -612,6 +763,17 @@ function RepairTab() {
             <select value={form.status} onChange={e => set('status', e.target.value)}>
               {STATUSES.map(s => <option key={s}>{s}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>PAYMENT METHOD</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {PAYMENTS.map(p => (
+                <button key={p} type="button"
+                  className={`pay-btn ${form.payment === p ? 'selected' : ''}`}
+                  style={{ fontSize: 11 }}
+                  onClick={() => set('payment', p)}>{p}</button>
+              ))}
+            </div>
           </div>
           <button className="btn btn-cyan" onClick={saveRepair} disabled={saving}>
             {saving ? 'Saving…' : '🔧 Save Repair'}
@@ -811,6 +973,121 @@ function ReturnForm({ title, description, endpoint, itemType, items, showQty }) 
       <button className="btn btn-cyan" onClick={submit} disabled={saving || !itemId}>
         {saving ? 'Recording…' : 'Record Return'}
       </button>
+    </div>
+  );
+}
+
+// ─── CREDITS TAB ──────────────────────────────────────────────────────────────
+function CreditsTab() {
+  const [credits, setCredits] = useState({ sales: [], repairs: [] });
+  const [clearing, setClearing] = useState(null);
+  const [cleared, setCleared]   = useState({});
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => { loadCredits(); }, []);
+
+  async function loadCredits() {
+    setLoading(true);
+    const r = await fetch('/api/credits');
+    setCredits(await r.json());
+    setLoading(false);
+  }
+
+  async function clearCredit(type, id) {
+    setClearing(`${type}-${id}`);
+    await fetch('/api/credits', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, id }),
+    });
+    setClearing(null);
+    setCleared(prev => ({ ...prev, [`${type}-${id}`]: true }));
+    setTimeout(() => {
+      setCleared(prev => { const n = { ...prev }; delete n[`${type}-${id}`]; return n; });
+      loadCredits();
+    }, 1500);
+  }
+
+  const pending = [
+    ...(credits.sales  || []).map(s => ({ ...s, _type: 'sale' })),
+    ...(credits.repairs || []).map(r => ({ ...r, _type: 'repair' })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const totalPending = pending.reduce((sum, item) => {
+    return sum + Number(item._type === 'sale' ? item.total_amount : item.customer_price);
+  }, 0);
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Loading…</div>;
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>Pending Credits</h2>
+
+      {pending.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, background: 'rgba(255,176,32,0.06)', borderColor: 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{pending.length} pending credit{pending.length !== 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Total outstanding</div>
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>Rs {totalPending.toLocaleString()}</div>
+        </div>
+      )}
+
+      {pending.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '50px 20px', color: 'var(--muted)', fontSize: 14 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+          No pending credits!
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {pending.map(item => {
+          const key = `${item._type}-${item.id}`;
+          const isClearing = clearing === key;
+          const isCleared  = cleared[key];
+          const amount = Number(item._type === 'sale' ? item.total_amount : item.customer_price);
+          const name   = item._type === 'sale' ? (item.credit_customer || 'Unknown') : item.customer_name;
+          const typeLabel = item._type === 'repair' ? 'REPAIR'
+            : (item.items_summary && !item.items_summary.match(/^\d/)) ? 'SALE' : 'PHONE SALE';
+
+          return (
+            <div key={key} className="card" style={{ opacity: isCleared ? 0.5 : 1, transition: 'opacity 0.3s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+                  background: item._type === 'repair' ? 'rgba(176,96,255,0.12)' : 'rgba(0,212,255,0.12)',
+                  color: item._type === 'repair' ? 'var(--purple)' : 'var(--cyan)' }}>
+                  {typeLabel}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  {new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                </span>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{name}</div>
+              {item._type === 'sale' && item.items_summary && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{item.items_summary}</div>
+              )}
+              {item._type === 'repair' && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                  {item.phone_model} — {item.issue?.slice(0, 50)}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>
+                  Rs {amount.toLocaleString()}
+                </span>
+                {isCleared ? (
+                  <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 14 }}>✓ Paid!</span>
+                ) : (
+                  <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '8px 18px' }}
+                    onClick={() => clearCredit(item._type, item.id)} disabled={isClearing}>
+                    {isClearing ? '…' : '✓ Mark Paid'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
