@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 
 const NPT = { timeZone: 'Asia/Kathmandu' };
+function nptToday() { return new Date(Date.now() + (5*60+45)*60*1000).toISOString().split('T')[0]; }
 function fmtDate(str, opts = {}) {
   if (!str) return '';
   const d = new Date(str.includes('T') || str.endsWith('Z') ? str : str.replace(' ', 'T') + 'Z');
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'repairs',   label: '🔧 Repairs' },
   { id: 'credits',   label: '💳 Credits' },
   { id: 'expenses',  label: '💸 Expenses' },
+  { id: 'cash',      label: '💰 Cash' },
 ];
 
 export default function Owner() {
@@ -82,6 +84,7 @@ export default function Owner() {
           {tab === 'repairs'   && <RepairsTab />}
           {tab === 'credits'   && <OwnerCreditsTab />}
           {tab === 'expenses'  && <OwnerExpensesTab />}
+          {tab === 'cash'      && <CashTab />}
         </div>
       </div>
     </>
@@ -1301,6 +1304,229 @@ function OwnerCreditsTab() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── CASH BALANCE TAB ────────────────────────────────────────────────────────
+const CASH_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
+const CASH_COLORS  = { Cash: 'var(--green)', eSewa: 'var(--cyan)', 'Bank Transfer': 'var(--purple)', Fonepay: 'var(--amber)' };
+
+function CashTab() {
+  const [date, setDate]                 = useState(nptToday());
+  const [data, setData]                 = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [editingOpening, setEditingOpening] = useState(false);
+  const [openingForm, setOpeningForm]   = useState({ Cash: '', eSewa: '', 'Bank Transfer': '', Fonepay: '' });
+  const [savingOpening, setSavingOpening] = useState(false);
+
+  useEffect(() => { load(); }, [date]);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/cash-balance?date=${date}`);
+    const d = await r.json();
+    setData(d);
+    const f = {};
+    CASH_METHODS.forEach(m => { f[m] = d.methods[m]?.opening ?? 0; });
+    setOpeningForm(f);
+    setLoading(false);
+  }
+
+  function navigateDate(delta) {
+    const d = new Date(date + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + delta);
+    const next = d.toISOString().split('T')[0];
+    if (next <= nptToday()) setDate(next);
+  }
+
+  function fmtDay(dateStr) {
+    return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+  function fmtShort(dateStr) {
+    return new Date(dateStr + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  }
+
+  async function saveOpening() {
+    setSavingOpening(true);
+    for (const m of CASH_METHODS) {
+      await fetch('/api/cash-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, payment_method: m, amount: Number(openingForm[m]) || 0 }),
+      });
+    }
+    setSavingOpening(false);
+    setEditingOpening(false);
+    load();
+  }
+
+  const isToday = date === nptToday();
+  const totalBalance = data ? CASH_METHODS.reduce((s, m) => s + (data.methods[m]?.balance || 0), 0) : 0;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Cash Balance</h2>
+      </div>
+
+      {/* Date navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '8px 14px' }} onClick={() => navigateDate(-1)}>←</button>
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>{fmtDay(date)}</span>
+          {isToday && <span style={{ fontSize: 11, color: 'var(--cyan)', marginLeft: 8 }}>TODAY</span>}
+        </div>
+        <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '8px 14px' }} onClick={() => navigateDate(1)} disabled={isToday}>→</button>
+      </div>
+
+      {/* Set opening balance */}
+      <div style={{ marginBottom: 14 }}>
+        <button className="btn btn-ghost btn-sm" style={{ width: '100%', fontSize: 12 }}
+          onClick={() => setEditingOpening(p => !p)}>
+          {editingOpening ? '✕ Cancel' : '⚙ Set Opening Balances'}
+        </button>
+        {editingOpening && (
+          <div className="card" style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Opening cash for {fmtDay(date)}</div>
+            {CASH_METHODS.map(m => (
+              <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, minWidth: 110, color: CASH_COLORS[m] }}>{m}</label>
+                <input type="number" value={openingForm[m]}
+                  onChange={e => setOpeningForm(f => ({ ...f, [m]: e.target.value }))}
+                  placeholder="0" style={{ flex: 1 }} />
+              </div>
+            ))}
+            <button className="btn btn-green" onClick={saveOpening} disabled={savingOpening}>
+              {savingOpening ? 'Saving…' : 'Save Opening Balances'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {loading && <LoadingState />}
+
+      {!loading && data && (
+        <>
+          {/* Per-method cards */}
+          {CASH_METHODS.map(m => {
+            const md = data.methods[m];
+            const hasActivity = md.inflows > 0 || md.opening > 0 || md.outflows > 0;
+            const color = CASH_COLORS[m];
+            return (
+              <div key={m} className="card" style={{ marginBottom: 10, borderLeft: `3px solid ${color}`, opacity: hasActivity ? 1 : 0.45 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color }}>{m}</span>
+                  <span style={{ fontWeight: 800, fontSize: 18, color: md.balance < 0 ? 'var(--red)' : color }}>
+                    Rs {md.balance.toLocaleString()}
+                  </span>
+                </div>
+                {hasActivity && (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>
+                    {md.opening > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Opening</span>
+                        <span>Rs {md.opening.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {md.productSales > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>+ Product Sales</span>
+                        <span style={{ color: 'var(--green)' }}>+Rs {md.productSales.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {md.repairSales > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>+ Repair Collections</span>
+                        <span style={{ color: 'var(--green)' }}>+Rs {md.repairSales.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {m === 'Cash' && data.expenses > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>− Expenses</span>
+                        <span style={{ color: 'var(--red)' }}>-Rs {data.expenses.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {m === 'Cash' && data.supplierPayments > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>− Supplier Payments</span>
+                        <span style={{ color: 'var(--red)' }}>-Rs {data.supplierPayments.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2 }}>
+                      <span style={{ fontWeight: 700, fontSize: 12 }}>Balance</span>
+                      <span style={{ fontWeight: 800, color: md.balance < 0 ? 'var(--red)' : color }}>
+                        Rs {md.balance.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Grand total */}
+          <div className="card" style={{ marginBottom: 16, background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700 }}>Total (All Methods)</span>
+              <span style={{ fontWeight: 800, fontSize: 20, color: 'var(--cyan)' }}>
+                Rs {totalBalance.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* History */}
+          {data.history?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>HISTORY — LAST 30 DAYS</div>
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left',  color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>DATE</th>
+                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>SALES IN</th>
+                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>EXP</th>
+                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>SUPP</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>NET</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.history.map(row => {
+                      const salesIn  = Number(row.product_sales) + Number(row.repair_sales);
+                      const totalOut = Number(row.expenses) + Number(row.supplier_payments);
+                      const net      = salesIn - totalOut;
+                      const isSelected = row.date === date;
+                      return (
+                        <tr key={row.date} style={{ borderBottom: '1px solid var(--border)', background: isSelected ? 'rgba(6,182,212,0.06)' : 'transparent', cursor: 'pointer' }}
+                          onClick={() => setDate(row.date)}>
+                          <td style={{ padding: '8px 10px', color: isSelected ? 'var(--cyan)' : 'var(--text)', fontWeight: isSelected ? 700 : 400 }}>
+                            {fmtShort(row.date)}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--green)', fontWeight: 600 }}>
+                            {salesIn > 0 ? salesIn.toLocaleString() : '—'}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--red)' }}>
+                            {Number(row.expenses) > 0 ? Number(row.expenses).toLocaleString() : '—'}
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--amber)' }}>
+                            {Number(row.supplier_payments) > 0 ? Number(row.supplier_payments).toLocaleString() : '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: net >= 0 ? 'var(--cyan)' : 'var(--red)' }}>
+                            {net >= 0 ? '+' : ''}{net.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 0' }}>
+                Tap any row to view that day's breakdown. Phone sales excluded. Supplier = settled shop tab debts.
+              </p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
