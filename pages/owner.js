@@ -17,6 +17,7 @@ const TABS = [
   { id: 'costs',     label: '💲 Costs' },
   { id: 'repairs',   label: '🔧 Repairs' },
   { id: 'credits',   label: '💳 Credits' },
+  { id: 'expenses',  label: '💸 Expenses' },
 ];
 
 export default function Owner() {
@@ -80,6 +81,7 @@ export default function Owner() {
           {tab === 'costs'     && <CostsTab products={products} />}
           {tab === 'repairs'   && <RepairsTab />}
           {tab === 'credits'   && <OwnerCreditsTab />}
+          {tab === 'expenses'  && <OwnerExpensesTab />}
         </div>
       </div>
     </>
@@ -163,8 +165,10 @@ function DashboardTab() {
       <div>
         <SectionLabel>TODAY</SectionLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <StatCard val={`Rs ${today.revenue.toFixed(0)}`} lbl="Revenue" color="var(--cyan)" />
-          <StatCard val={`Rs ${today.profit.toFixed(0)}`}  lbl="Profit"  color="var(--green)" />
+          <StatCard val={`Rs ${today.revenue.toFixed(0)}`}      lbl="Revenue"      color="var(--cyan)" />
+          <StatCard val={`Rs ${today.grossProfit.toFixed(0)}`}  lbl="Gross Profit" color="var(--green)" />
+          <StatCard val={`Rs ${today.expenses.toFixed(0)}`}     lbl="Expenses"     color="var(--red)" />
+          <StatCard val={`Rs ${today.profit.toFixed(0)}`}       lbl="Net Profit"   color="var(--green)" />
           <StatCard val={today.sales} lbl="Sales"      color="var(--amber)" />
           <StatCard val={today.items} lbl="Items Sold" color="var(--purple)" />
         </div>
@@ -174,10 +178,12 @@ function DashboardTab() {
       <div>
         <SectionLabel>THIS MONTH</SectionLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <StatCard val={`Rs ${monthly.revenue.toFixed(0)}`}      lbl="Revenue" color="var(--cyan)" />
-          <StatCard val={`Rs ${monthly.profit.toFixed(0)}`}       lbl="Profit"  color="var(--green)" />
-          <StatCard val={`${monthly.margin.toFixed(1)}%`}         lbl="Margin"  color="var(--amber)" />
-          <StatCard val={monthly.sales}                            lbl="Sales"   color="var(--purple)" />
+          <StatCard val={`Rs ${monthly.revenue.toFixed(0)}`}      lbl="Revenue"      color="var(--cyan)" />
+          <StatCard val={`Rs ${monthly.grossProfit.toFixed(0)}`}  lbl="Gross Profit" color="var(--green)" />
+          <StatCard val={`Rs ${monthly.expenses.toFixed(0)}`}     lbl="Expenses"     color="var(--red)" />
+          <StatCard val={`Rs ${monthly.profit.toFixed(0)}`}       lbl="Net Profit"   color="var(--green)" />
+          <StatCard val={`${monthly.margin.toFixed(1)}%`}         lbl="Margin"       color="var(--amber)" />
+          <StatCard val={monthly.sales}                            lbl="Sales"        color="var(--purple)" />
         </div>
       </div>
 
@@ -972,7 +978,11 @@ function AnalyticsTab() {
     return data.products.map((row, i) => {
       const ph = data.phones[i];
       const rp = data.repairs[i];
-      if (cat === 'all')      return { label: MONTH_NAMES[i], revenue: row.revenue + ph.revenue + rp.revenue, profit: row.profit + ph.profit + rp.profit, count: row.count + ph.count + rp.count };
+      if (cat === 'all') {
+        const grossProfit = row.profit + ph.profit + rp.profit;
+        const expenses = Number(data.expensesByMonth?.[i + 1] || 0);
+        return { label: MONTH_NAMES[i], revenue: row.revenue + ph.revenue + rp.revenue, grossProfit, expenses, profit: grossProfit - expenses, count: row.count + ph.count + rp.count };
+      }
       if (cat === 'products') return { label: MONTH_NAMES[i], ...row };
       if (cat === 'phones')   return { label: MONTH_NAMES[i], ...ph };
       return { label: MONTH_NAMES[i], revenue: rp.revenue, profit: rp.profit, count: rp.count };
@@ -990,7 +1000,11 @@ function AnalyticsTab() {
       const p  = data.yearly.products.find(r => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
       const ph = data.yearly.phones.find(r   => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
       const rp = data.yearly.repairs.find(r  => r.year === yr) || { revenue: 0, profit: 0, count: 0 };
-      if (cat === 'all')      return { label: yr, revenue: p.revenue + ph.revenue + rp.revenue, profit: p.profit + ph.profit + rp.profit, count: p.count + ph.count + rp.count };
+      if (cat === 'all') {
+        const grossProfit = p.profit + ph.profit + rp.profit;
+        const expenses = Number(data.yearly.expenses?.[yr] || 0);
+        return { label: yr, revenue: p.revenue + ph.revenue + rp.revenue, grossProfit, expenses, profit: grossProfit - expenses, count: p.count + ph.count + rp.count };
+      }
       if (cat === 'products') return { label: yr, ...p };
       if (cat === 'phones')   return { label: yr, ...ph };
       return { label: yr, revenue: rp.revenue, profit: rp.profit, count: rp.count };
@@ -998,7 +1012,13 @@ function AnalyticsTab() {
   }
 
   const rows  = view === 'monthly' ? buildMonthly() : buildYearly();
-  const total = rows.reduce((acc, r) => ({ revenue: acc.revenue + r.revenue, profit: acc.profit + r.profit, count: acc.count + r.count }), { revenue: 0, profit: 0, count: 0 });
+  const total = rows.reduce((acc, r) => ({
+    revenue:     acc.revenue     + r.revenue,
+    grossProfit: acc.grossProfit + (r.grossProfit || 0),
+    expenses:    acc.expenses    + (r.expenses    || 0),
+    profit:      acc.profit      + r.profit,
+    count:       acc.count       + r.count,
+  }), { revenue: 0, grossProfit: 0, expenses: 0, profit: 0, count: 0 });
 
   const countLabel = cat === 'repairs' ? 'Jobs' : 'Sales';
 
@@ -1042,20 +1062,41 @@ function AnalyticsTab() {
       </div>
 
       {/* Summary totals */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <div className="stat-card">
-          <div className="val" style={{ color: 'var(--cyan)', fontSize: 18 }}>Rs {fmt(total.revenue)}</div>
-          <div className="lbl">Revenue</div>
+      {cat === 'all' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--cyan)', fontSize: 17 }}>Rs {fmt(total.revenue)}</div>
+            <div className="lbl">Revenue</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--green)', fontSize: 17 }}>Rs {fmt(total.grossProfit)}</div>
+            <div className="lbl">Gross Profit</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--red)', fontSize: 17 }}>Rs {fmt(total.expenses)}</div>
+            <div className="lbl">Expenses</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--green)', fontSize: 17 }}>Rs {fmt(total.profit)}</div>
+            <div className="lbl">Net Profit</div>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="val" style={{ color: 'var(--green)', fontSize: 18 }}>Rs {fmt(total.profit)}</div>
-          <div className="lbl">Profit</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--cyan)', fontSize: 18 }}>Rs {fmt(total.revenue)}</div>
+            <div className="lbl">Revenue</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--green)', fontSize: 18 }}>Rs {fmt(total.profit)}</div>
+            <div className="lbl">Profit</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--amber)', fontSize: 18 }}>{total.count}</div>
+            <div className="lbl">{countLabel}</div>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="val" style={{ color: 'var(--amber)', fontSize: 18 }}>{total.count}</div>
-          <div className="lbl">{countLabel}</div>
-        </div>
-      </div>
+      )}
 
       {/* Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -1066,15 +1107,15 @@ function AnalyticsTab() {
                 {view === 'monthly' ? 'MONTH' : 'YEAR'}
               </th>
               <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>REVENUE</th>
-              <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>PROFIT</th>
+              <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>{cat === 'all' ? 'NET' : 'PROFIT'}</th>
               <th style={{ padding: '10px 10px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 11 }}>
-                {countLabel.toUpperCase()}
+                {cat === 'all' ? 'EXP' : countLabel.toUpperCase()}
               </th>
             </tr>
           </thead>
           <tbody>
             {rows.map(row => {
-              const isEmpty = row.revenue === 0 && row.count === 0;
+              const isEmpty = row.revenue === 0 && (cat === 'all' ? row.grossProfit === 0 : row.count === 0);
               return (
                 <tr key={row.label} style={{ borderBottom: '1px solid var(--border)', opacity: isEmpty ? 0.35 : 1 }}>
                   <td style={{ padding: '9px 12px', fontWeight: 600, color: 'var(--text)' }}>{row.label}</td>
@@ -1084,9 +1125,14 @@ function AnalyticsTab() {
                   <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 600,
                     color: row.profit > 0 ? 'var(--green)' : row.profit < 0 ? 'var(--red)' : 'var(--muted)' }}>
                     {row.profit !== 0 ? `Rs ${fmt(row.profit)}` : '—'}
+                    {cat === 'all' && row.grossProfit > 0 && (
+                      <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>g: {fmt(row.grossProfit)}</div>
+                    )}
                   </td>
                   <td style={{ padding: '9px 10px', textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>
-                    {row.count > 0 ? row.count : '—'}
+                    {cat === 'all'
+                      ? (row.expenses > 0 ? <span style={{ color: 'var(--red)', fontSize: 11 }}>{fmt(row.expenses)}</span> : '—')
+                      : (row.count > 0 ? row.count : '—')}
                   </td>
                 </tr>
               );
@@ -1096,8 +1142,17 @@ function AnalyticsTab() {
             <tr style={{ background: 'rgba(6,182,212,0.08)', borderTop: '2px solid var(--border)' }}>
               <td style={{ padding: '11px 12px', fontWeight: 800, color: 'var(--text)', fontSize: 13 }}>TOTAL</td>
               <td style={{ padding: '11px 8px', textAlign: 'right', color: 'var(--cyan)', fontWeight: 800 }}>Rs {fmt(total.revenue)}</td>
-              <td style={{ padding: '11px 8px', textAlign: 'right', color: 'var(--green)', fontWeight: 800 }}>Rs {fmt(total.profit)}</td>
-              <td style={{ padding: '11px 10px', textAlign: 'right', color: 'var(--amber)', fontWeight: 800 }}>{total.count}</td>
+              <td style={{ padding: '11px 8px', textAlign: 'right', color: 'var(--green)', fontWeight: 800 }}>
+                Rs {fmt(total.profit)}
+                {cat === 'all' && total.grossProfit > 0 && (
+                  <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>g: {fmt(total.grossProfit)}</div>
+                )}
+              </td>
+              <td style={{ padding: '11px 10px', textAlign: 'right', fontWeight: 800 }}>
+                {cat === 'all'
+                  ? <span style={{ color: 'var(--red)' }}>{fmt(total.expenses)}</span>
+                  : <span style={{ color: 'var(--amber)' }}>{total.count}</span>}
+              </td>
             </tr>
           </tfoot>
         </table>
@@ -1106,6 +1161,11 @@ function AnalyticsTab() {
       {cat === 'repairs' && (
         <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
           * Revenue and profit shown only for Done/Delivered repairs. Count includes all statuses.
+        </p>
+      )}
+      {cat === 'all' && (
+        <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+          * NET = Gross Profit minus Expenses. EXP column shows total expenses for the period. "g:" shows gross before deduction.
         </p>
       )}
     </div>
@@ -1240,6 +1300,166 @@ function OwnerCreditsTab() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── OWNER EXPENSES TAB ──────────────────────────────────────────────────────
+function OwnerExpensesTab() {
+  const [expenses, setExpenses] = useState([]);
+  const [period, setPeriod]     = useState('month'); // 'today' | 'month' | 'all'
+  const [type, setType]         = useState('all');   // 'all' | 'staff' | 'owner'
+  const [form, setForm]         = useState({ description: '', amount: '' });
+  const [saving, setSaving]     = useState(false);
+  const [showAdd, setShowAdd]   = useState(false);
+  const [delConfirm, setDelConfirm] = useState(null);
+  const [loading, setLoading]   = useState(true);
+
+  useEffect(() => { load(); }, [period, type]);
+
+  async function load() {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (period !== 'all') params.set('period', period);
+    if (type !== 'all')   params.set('type', type);
+    const r = await fetch(`/api/expenses?${params}`);
+    setExpenses(await r.json());
+    setLoading(false);
+  }
+
+  async function addExpense() {
+    if (!form.description.trim() || !form.amount) return;
+    setSaving(true);
+    await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: form.description.trim(), amount: Number(form.amount) }),
+    });
+    setSaving(false);
+    setForm({ description: '', amount: '' });
+    setShowAdd(false);
+    load();
+  }
+
+  async function deleteExpense(id) {
+    await fetch(`/api/expenses/${id}`, { method: 'DELETE' });
+    setDelConfirm(null);
+    load();
+  }
+
+  const total      = expenses.reduce((s, e) => s + Number(e.amount), 0);
+  const staffTotal = expenses.filter(e => e.entered_by === 'staff').reduce((s, e) => s + Number(e.amount), 0);
+  const ownerTotal = expenses.filter(e => e.entered_by === 'owner').reduce((s, e) => s + Number(e.amount), 0);
+
+  const SUGGESTIONS = ['Rent', 'Salary', 'Utilities', 'Cleaning', 'Staff Lunch', 'Tea/Snacks', 'Transport', 'Maintenance', 'Equipment', 'Printing', 'Stationary', 'Marketing', 'Other'];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Expenses</h2>
+        <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 14px' }} onClick={() => setShowAdd(p => !p)}>
+          {showAdd ? '✕ Cancel' : '+ Add'}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <datalist id="exp-owner-sugg">
+            {SUGGESTIONS.map(s => <option key={s} value={s} />)}
+          </datalist>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>DESCRIPTION</label>
+            <input list="exp-owner-sugg" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Rent, Salary…" />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>AMOUNT (RS)</label>
+            <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0"
+              onKeyDown={e => e.key === 'Enter' && addExpense()} />
+          </div>
+          <button className="btn btn-green" onClick={addExpense}
+            disabled={saving || !form.description.trim() || !form.amount}>
+            {saving ? 'Saving…' : 'Add Expense'}
+          </button>
+        </div>
+      )}
+
+      {/* Period filter */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        {[['today','Today'],['month','This Month'],['all','All Time']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setPeriod(v)}
+            className={`btn btn-sm ${period === v ? 'btn-cyan' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 11 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Type filter */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {[['all','All'],['staff','Staff'],['owner','Owner']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setType(v)}
+            className={`btn btn-sm ${type === v ? 'btn-amber' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 11 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Summary */}
+      {!loading && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--red)', fontSize: 16 }}>Rs {total.toLocaleString()}</div>
+            <div className="lbl">Total</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--cyan)', fontSize: 16 }}>Rs {staffTotal.toLocaleString()}</div>
+            <div className="lbl">Staff</div>
+          </div>
+          <div className="stat-card">
+            <div className="val" style={{ color: 'var(--purple)', fontSize: 16 }}>Rs {ownerTotal.toLocaleString()}</div>
+            <div className="lbl">Owner</div>
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>}
+
+      {!loading && expenses.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No expenses for this period</div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {expenses.map(e => (
+          <div key={e.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{e.description}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+                  background: e.entered_by === 'owner' ? 'rgba(176,96,255,0.12)' : 'rgba(0,212,255,0.12)',
+                  color: e.entered_by === 'owner' ? 'var(--purple)' : 'var(--cyan)' }}>
+                  {e.entered_by?.toUpperCase()}
+                </span>
+                {e.expense_date}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontWeight: 700, color: 'var(--red)' }}>Rs {Number(e.amount).toLocaleString()}</span>
+              {delConfirm === e.id ? (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn btn-sm" style={{ padding: '4px 10px', background: 'var(--red)', color: '#fff', border: 'none', fontSize: 12 }}
+                    onClick={() => deleteExpense(e.id)}>Del</button>
+                  <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 12 }}
+                    onClick={() => setDelConfirm(null)}>×</button>
+                </div>
+              ) : (
+                <button className="btn btn-ghost btn-sm" style={{ padding: '4px 8px', fontSize: 14, lineHeight: 1 }}
+                  onClick={() => setDelConfirm(e.id)}>×</button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

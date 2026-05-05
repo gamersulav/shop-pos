@@ -30,6 +30,7 @@ const TABS = [
   { id: 'products', label: '🏷 Products' },
   { id: 'returns',  label: '↩ Returns' },
   { id: 'credits',  label: '💳 Credits' },
+  { id: 'expenses', label: '💸 Expenses' },
 ];
 
 const PAYMENTS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'];
@@ -96,6 +97,7 @@ export default function Staff() {
           {tab === 'products' && <StaffProductsTab products={products} reload={loadProducts} />}
           {tab === 'returns'  && <ReturnsTab  products={products} />}
           {tab === 'credits'  && <CreditsTab />}
+          {tab === 'expenses' && <StaffExpensesTab />}
         </div>
       </div>
     </>
@@ -1584,6 +1586,161 @@ function CreditsTab() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── STAFF EXPENSES TAB ───────────────────────────────────────────────────────
+function StaffExpensesTab() {
+  const [expenses, setExpenses] = useState([]);
+  const [form, setForm]         = useState({ description: '', amount: '' });
+  const [saving, setSaving]     = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [deleting, setDeleting] = useState(null);
+
+  const SUGGESTIONS = ['Cleaning', 'Staff Lunch', 'Tea/Snacks', 'Transport', 'Printing', 'Stationary', 'Other'];
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    const r = await fetch('/api/expenses?period=month');
+    setExpenses(await r.json());
+    setLoading(false);
+  }
+
+  async function save() {
+    if (!form.description.trim()) { alert('Enter a description'); return; }
+    if (!form.amount || Number(form.amount) <= 0) { alert('Enter a valid amount'); return; }
+    setSaving(true);
+    const r = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount) }),
+    });
+    setSaving(false);
+    if (r.ok) { setForm({ description: '', amount: '' }); load(); }
+    else alert('Error saving. Try again.');
+  }
+
+  async function del(id) {
+    setDeleting(id);
+    await fetch(`/api/expenses/${id}`, { method: 'DELETE' });
+    setDeleting(null);
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  }
+
+  function nptToday() {
+    return new Date(Date.now() + (5 * 60 + 45) * 60 * 1000).toISOString().split('T')[0];
+  }
+
+  const today      = nptToday();
+  const todayExp   = expenses.filter(e => e.expense_date === today);
+  const earlierExp = expenses.filter(e => e.expense_date !== today);
+  const todayTotal = todayExp.reduce((s, e) => s + Number(e.amount), 0);
+  const monthTotal = expenses.reduce((s, e) => s + Number(e.amount), 0);
+
+  function fmtExpDate(d) {
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  }
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Expenses</h2>
+
+      {/* Add form */}
+      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Record Expense</div>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>DESCRIPTION</label>
+          <input type="text" placeholder="e.g. Staff Lunch" value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            list="expense-suggestions" />
+          <datalist id="expense-suggestions">
+            {SUGGESTIONS.map(s => <option key={s} value={s} />)}
+          </datalist>
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>AMOUNT (Rs)</label>
+          <input type="number" min="0" placeholder="0" value={form.amount}
+            onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+            style={{ textAlign: 'right', fontWeight: 700, fontSize: 20 }} />
+        </div>
+        <button className="btn btn-cyan" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : '💸 Add Expense'}
+        </button>
+      </div>
+
+      {/* Monthly summary */}
+      {!loading && expenses.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <div className="card" style={{ flex: 1, textAlign: 'center', padding: '10px 8px', background: 'rgba(255,51,85,0.06)', borderColor: 'rgba(255,51,85,0.2)' }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--red)' }}>Rs {todayTotal.toLocaleString()}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Today</div>
+          </div>
+          <div className="card" style={{ flex: 1, textAlign: 'center', padding: '10px 8px', background: 'rgba(255,51,85,0.06)', borderColor: 'rgba(255,51,85,0.2)' }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--red)' }}>Rs {monthTotal.toLocaleString()}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>This Month</div>
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Loading…</div>}
+
+      {/* Today's list */}
+      {todayExp.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>TODAY</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+            {todayExp.map(e => (
+              <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate={false} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Earlier this month */}
+      {earlierExp.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>EARLIER THIS MONTH</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {earlierExp.map(e => (
+              <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate fmtDate={fmtExpDate} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {!loading && expenses.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 14 }}>No expenses recorded this month.</div>
+      )}
+    </div>
+  );
+}
+
+function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{e.description}</div>
+        {showDate && fmtDate && (
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{fmtDate(e.expense_date)}</div>
+        )}
+      </div>
+      <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', flexShrink: 0 }}>
+        Rs {Number(e.amount).toLocaleString()}
+      </div>
+      {!confirm ? (
+        <button onClick={() => setConfirm(true)}
+          style={{ background: 'none', border: '1.5px solid var(--border)', borderRadius: 8, color: 'var(--muted)', padding: '4px 8px', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>
+          ×
+        </button>
+      ) : (
+        <button onClick={() => { setConfirm(false); onDelete(e.id); }} disabled={deleting === e.id}
+          style={{ background: 'var(--red)', border: 'none', borderRadius: 8, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+          {deleting === e.id ? '…' : 'Del?'}
+        </button>
+      )}
     </div>
   );
 }

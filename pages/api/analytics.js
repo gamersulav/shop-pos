@@ -13,6 +13,8 @@ export default async function handler(req, res) {
     SELECT DISTINCT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr FROM sales
     UNION
     SELECT DISTINCT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr FROM repairs
+    UNION
+    SELECT DISTINCT strftime('%Y', expense_date) as yr FROM expenses
     ORDER BY yr DESC
   `);
   const years = [...new Set([...yearRows.map(r => r.yr).filter(Boolean), year])].sort((a, b) => b.localeCompare(a));
@@ -120,6 +122,23 @@ export default async function handler(req, res) {
     GROUP BY yr ORDER BY yr DESC
   `);
 
+  // ── Monthly expenses ──────────────────────────────────────────────────────
+  const expenseMonthly = await db.query(`
+    SELECT CAST(strftime('%m', expense_date) AS INTEGER) as month,
+           COALESCE(SUM(amount), 0) as total
+    FROM expenses
+    WHERE strftime('%Y', expense_date) = ?
+    GROUP BY month
+  `, [year]);
+
+  // ── Yearly expenses ───────────────────────────────────────────────────────
+  const expenseYearly = await db.query(`
+    SELECT strftime('%Y', expense_date) as yr,
+           COALESCE(SUM(amount), 0) as total
+    FROM expenses
+    GROUP BY yr ORDER BY yr DESC
+  `);
+
   function makeMap(rows) {
     const m = {};
     for (const r of rows) m[r.month ? Number(r.month) : r.yr] = r;
@@ -145,12 +164,19 @@ export default async function handler(req, res) {
   const yrProdRetMap = makeMap(yearlyProdReturns);
   const yrPhoneRetMap = makeMap(yearlyPhoneReturns);
 
+  // Build expense lookup maps
+  const expMonthMap = {};
+  expenseMonthly.forEach(r => { expMonthMap[Number(r.month)] = Number(r.total); });
+  const expYearMap = {};
+  expenseYearly.forEach(r => { expYearMap[r.yr] = Number(r.total); });
+
   res.json({
     year,
     years,
-    products: toMonthArray(prodMonthly,  'sales', prodRetMap),
-    phones:   toMonthArray(phoneMonthly, 'sales', phoneRetMap),
-    repairs:  toMonthArray(repairMonthly, 'count'),
+    products:       toMonthArray(prodMonthly,  'sales', prodRetMap),
+    phones:         toMonthArray(phoneMonthly, 'sales', phoneRetMap),
+    repairs:        toMonthArray(repairMonthly, 'count'),
+    expensesByMonth: expMonthMap,
     yearly: {
       products: yearlyProd.map(r => {
         const ret = yrProdRetMap[r.yr] || { revenue: 0, profit: 0 };
@@ -160,7 +186,8 @@ export default async function handler(req, res) {
         const ret = yrPhoneRetMap[r.yr] || { revenue: 0, profit: 0 };
         return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue)), profit: Math.max(0, Number(r.profit) - Number(ret.profit)), count: Number(r.sales) };
       }),
-      repairs: yearlyRepair.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.count) })),
+      repairs:  yearlyRepair.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.count) })),
+      expenses: expYearMap,
     },
   });
 }

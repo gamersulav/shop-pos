@@ -64,6 +64,15 @@ export default async function handler(req, res) {
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}
     GROUP BY si.product_name ORDER BY qty DESC LIMIT 6`);
 
+  // ── Expenses ──────────────────────────────────────────────────────────────
+  const todayExp = await db.queryOne(`
+    SELECT COALESCE(SUM(amount),0) as total FROM expenses
+    WHERE expense_date = ${NPT_TODAY}`);
+
+  const monthlyExp = await db.queryOne(`
+    SELECT COALESCE(SUM(amount),0) as total FROM expenses
+    WHERE ${nptMonth('expense_date')} = ${NPT_MONTH}`);
+
   // ── Repairs ───────────────────────────────────────────────────────────────
   const repairStats = await db.query(
     `SELECT status, COUNT(*) as count FROM repairs GROUP BY status`);
@@ -85,18 +94,25 @@ export default async function handler(req, res) {
   const rev         = Number(monthly?.revenue  || 0) - Number(monthlyReturns?.revenue || 0);
   const profit      = Number(monthlyProfit?.profit || 0) - Number(monthlyReturns?.profit || 0);
 
+  const todayExpTotal   = Number(todayExp?.total   || 0);
+  const monthlyExpTotal = Number(monthlyExp?.total || 0);
+
   res.json({
     today: {
-      revenue: todayRev,
-      profit:  todayPro,
-      sales:   Number(today?.sales || 0),
-      items:   Number(today?.items || 0),
+      revenue:   todayRev,
+      grossProfit: todayPro,
+      expenses:  todayExpTotal,
+      profit:    todayPro - todayExpTotal,
+      sales:     Number(today?.sales || 0),
+      items:     Number(today?.items || 0),
     },
     monthly: {
-      revenue: rev,
-      profit,
-      sales:  Number(monthly?.sales || 0),
-      margin: rev > 0 ? (profit / rev) * 100 : 0,
+      revenue:     rev,
+      grossProfit: profit,
+      expenses:    monthlyExpTotal,
+      profit:      profit - monthlyExpTotal,
+      sales:       Number(monthly?.sales || 0),
+      margin:      rev > 0 ? ((profit - monthlyExpTotal) / rev) * 100 : 0,
     },
     payments,
     topProducts,
