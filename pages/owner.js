@@ -591,6 +591,27 @@ function OwnerPhonesTab() {
 
 // ─── COSTS TAB ────────────────────────────────────────────────────────────────
 function CostsTab({ products }) {
+  const [subTab, setSubTab] = useState('stock');
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Costs</h2>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[['stock','📦 Stock Costs'],['shops','🛍️ Shop Tabs']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setSubTab(v)}
+            className={`btn btn-sm ${subTab === v ? 'btn-cyan' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+      {subTab === 'stock'  && <StockCostsPanel />}
+      {subTab === 'shops'  && <ShopTabsPanel />}
+    </div>
+  );
+}
+
+function StockCostsPanel() {
   const [entries, setEntries] = useState([]);
   const [saving, setSaving] = useState({});
 
@@ -616,24 +637,19 @@ function CostsTab({ products }) {
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 700 }}>Purchase Costs</h2>
-      <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0, marginBottom: 14 }}>
+      <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 14px' }}>
         Set the cost price for each stock entry to calculate profit accurately.
       </p>
-
       {entries.length === 0 && (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No stock entries yet</div>
       )}
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {entries.map(e => (
           <div key={e.id} className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{e.product_name}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {e.quantity} units · {fmtDate(e.created_at)}
-                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{e.quantity} units · {fmtDate(e.created_at)}</div>
               </div>
               {e.cost_price ? (
                 <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Rs {e.cost_price}</span>
@@ -653,6 +669,130 @@ function CostsTab({ products }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ShopTabsPanel() {
+  const [rows, setRows]       = useState([]);
+  const [filter, setFilter]   = useState('pending');
+  const [settling, setSettling] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [filter]);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(filter === 'all' ? '/api/shop-tabs?all=1' : '/api/shop-tabs');
+    setRows(await r.json());
+    setLoading(false);
+  }
+
+  async function settle(shopName) {
+    setSettling(shopName);
+    await fetch('/api/shop-tabs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopName }),
+    });
+    setSettling('');
+    load();
+  }
+
+  // Group by shop
+  const grouped = {};
+  rows.forEach(r => {
+    if (!grouped[r.shop_name]) grouped[r.shop_name] = [];
+    grouped[r.shop_name].push(r);
+  });
+  const shops = Object.keys(grouped).sort();
+
+  const totalPending = rows
+    .filter(r => !r.settled)
+    .reduce((s, r) => s + Number(r.unit_cost) * Number(r.quantity), 0);
+
+  return (
+    <div>
+      <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 12px' }}>
+        Purchases from nearby shops — track and settle weekly/monthly.
+      </p>
+
+      {totalPending > 0 && filter === 'pending' && (
+        <div className="card" style={{ marginBottom: 14, background: 'rgba(255,176,32,0.06)', borderColor: 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Total pending</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>Rs {totalPending.toLocaleString()}</div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['pending','Pending'],['all','All History']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setFilter(v)}
+            className={`btn btn-sm ${filter === v ? 'btn-amber' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>Loading…</div>}
+
+      {!loading && shops.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+          {filter === 'pending' ? 'No pending shop tabs 🎉' : 'No shop purchase records yet'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {shops.map(shopName => {
+          const items   = grouped[shopName];
+          const pending = items.filter(i => !i.settled);
+          const shopTotal = pending.reduce((s, i) => s + Number(i.unit_cost) * Number(i.quantity), 0);
+          const isSettling = settling === shopName;
+
+          return (
+            <div key={shopName} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{shopName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    {items.length} item{items.length !== 1 ? 's' : ''}{pending.length > 0 ? ` · ${pending.length} pending` : ' · settled'}
+                  </div>
+                </div>
+                {shopTotal > 0 && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>Rs {shopTotal.toLocaleString()}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>owed</div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                {items.map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: item.settled ? 'rgba(112,112,160,0.06)' : 'rgba(255,176,32,0.06)', borderRadius: 8, opacity: item.settled ? 0.6 : 1 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{item.product_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {item.quantity} × Rs {Number(item.unit_cost).toLocaleString()} · {fmtDate(item.created_at, { day: 'numeric', month: 'short' })}
+                        {item.settled && item.settled_at && <span style={{ color: 'var(--green)', marginLeft: 6 }}>✓ paid {fmtDate(item.settled_at, { day: 'numeric', month: 'short' })}</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: item.settled ? 'var(--muted)' : 'var(--amber)', marginLeft: 10 }}>
+                      Rs {(Number(item.unit_cost) * Number(item.quantity)).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {shopTotal > 0 && (
+                <button className="btn btn-green" style={{ minHeight: 44 }}
+                  onClick={() => settle(shopName)} disabled={isSettling}>
+                  {isSettling ? 'Settling…' : `✓ Mark All Paid — Rs ${shopTotal.toLocaleString()}`}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

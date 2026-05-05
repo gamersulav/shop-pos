@@ -662,12 +662,30 @@ function PhonesTab() {
 
 // ─── STOCK TAB ────────────────────────────────────────────────────────────────
 function StockTab({ products }) {
+  const [subTab, setSubTab] = useState('regular');
+
+  // Regular stock
   const [productId, setProductId] = useState('');
   const [qty, setQty]             = useState(1);
   const [saving, setSaving]       = useState(false);
   const [done, setDone]           = useState(false);
 
-  async function saveStock() {
+  // Shop purchase
+  const blankShopItem = () => ({ productId: '', productName: '', qty: 1, unitCost: '' });
+  const [shopName, setShopName]   = useState('');
+  const [shopItems, setShopItems] = useState([blankShopItem()]);
+  const [recentShops, setRecentShops] = useState([]);
+  const [shopSaving, setShopSaving]   = useState(false);
+  const [shopDone, setShopDone]       = useState(false);
+
+  useEffect(() => {
+    fetch('/api/shop-tabs').then(r => r.json()).then(data => {
+      const names = [...new Set(data.map(d => d.shop_name))].slice(0, 8);
+      setRecentShops(names);
+    }).catch(() => {});
+  }, []);
+
+  async function saveRegularStock() {
     if (!productId) { alert('Select a product'); return; }
     setSaving(true);
     const res = await fetch('/api/stock', {
@@ -680,33 +698,150 @@ function StockTab({ products }) {
     else alert('Error saving. Try again.');
   }
 
-  if (done) return <SuccessScreen emoji="📦" title="Stock Added!" />;
+  function setShopItem(idx, field, val) {
+    setShopItems(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: val };
+      if (field === 'productId') {
+        const p = products.find(p => p.id === Number(val));
+        next[idx].productName = p ? p.name : '';
+      }
+      return next;
+    });
+  }
+
+  async function saveShopPurchase() {
+    if (!shopName.trim()) { alert('Enter shop name'); return; }
+    const filled = shopItems.filter(i => i.productName && i.qty > 0);
+    if (!filled.length) { alert('Add at least one product'); return; }
+    setShopSaving(true);
+    const res = await fetch('/api/shop-tabs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shopName: shopName.trim(),
+        items: filled.map(i => ({
+          productId:   i.productId ? Number(i.productId) : null,
+          productName: i.productName,
+          quantity:    Number(i.qty),
+          unitCost:    Number(i.unitCost) || 0,
+        })),
+      }),
+    });
+    setShopSaving(false);
+    if (res.ok) {
+      setShopDone(true);
+      setTimeout(() => { setShopName(''); setShopItems([blankShopItem()]); setShopDone(false); }, 1800);
+    } else alert('Error saving. Try again.');
+  }
+
+  if (done)     return <SuccessScreen emoji="📦" title="Stock Added!" />;
+  if (shopDone) return <SuccessScreen emoji="🛍️" title="Shop Purchase Recorded!" />;
+
+  const shopTotal = shopItems
+    .filter(i => i.productName && Number(i.unitCost) >= 0)
+    .reduce((s, i) => s + Number(i.unitCost || 0) * Number(i.qty || 1), 0);
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 18px', fontSize: 18, fontWeight: 700 }}>Add Stock</h2>
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PRODUCT</label>
-          <ProductComboBox
-            products={products}
-            value={productId}
-            onChange={val => setProductId(val ? String(val) : '')}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>QUANTITY RECEIVED</label>
-          <input type="number" min="1" value={qty}
-            onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-            style={{ textAlign: 'center', fontWeight: 700, fontSize: 24 }} />
-        </div>
-        <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
-          ℹ️ Purchase price will be set by the owner
-        </div>
-        <button className="btn btn-cyan" onClick={saveStock} disabled={saving || !productId}>
-          {saving ? 'Saving…' : '📦 Save Stock Entry'}
-        </button>
+      <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Stock</h2>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {[['regular','📦 Regular'],['shop','🛍️ Shop Tab']].map(([v, lbl]) => (
+          <button key={v} onClick={() => setSubTab(v)}
+            className={`btn btn-sm ${subTab === v ? 'btn-cyan' : 'btn-ghost'}`}
+            style={{ flex: 1 }}>
+            {lbl}
+          </button>
+        ))}
       </div>
+
+      {subTab === 'regular' && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PRODUCT</label>
+            <ProductComboBox products={products} value={productId}
+              onChange={val => setProductId(val ? String(val) : '')} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>QUANTITY RECEIVED</label>
+            <input type="number" min="1" value={qty}
+              onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+              style={{ textAlign: 'center', fontWeight: 700, fontSize: 24 }} />
+          </div>
+          <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
+            ℹ️ Purchase price will be set by the owner
+          </div>
+          <button className="btn btn-cyan" onClick={saveRegularStock} disabled={saving || !productId}>
+            {saving ? 'Saving…' : '📦 Save Stock Entry'}
+          </button>
+        </div>
+      )}
+
+      {subTab === 'shop' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="card">
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>SHOP NAME *</label>
+            <input type="text" placeholder="e.g. Sharma Traders" value={shopName}
+              onChange={e => setShopName(e.target.value)} list="recent-shops-list" />
+            <datalist id="recent-shops-list">
+              {recentShops.map(s => <option key={s} value={s} />)}
+            </datalist>
+          </div>
+
+          {shopItems.map((item, idx) => (
+            <div key={idx} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>ITEM {idx + 1}</span>
+                {shopItems.length > 1 && (
+                  <button onClick={() => setShopItems(p => p.filter((_, i) => i !== idx))}
+                    style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 20, padding: 0 }}>×</button>
+                )}
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>PRODUCT</label>
+                <ProductComboBox products={products} value={item.productId}
+                  onChange={val => setShopItem(idx, 'productId', String(val))} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>QTY</label>
+                  <input type="number" min="1" value={item.qty}
+                    onChange={e => setShopItem(idx, 'qty', Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }} />
+                </div>
+                <div style={{ flex: 1.5 }}>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>PRICE/UNIT (Rs)</label>
+                  <input type="number" min="0" placeholder="0" value={item.unitCost}
+                    onChange={e => setShopItem(idx, 'unitCost', e.target.value)}
+                    style={{ textAlign: 'right', fontWeight: 700 }} />
+                </div>
+              </div>
+              {item.productName && item.unitCost !== '' && (
+                <div style={{ textAlign: 'right', fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
+                  Rs {(Number(item.unitCost) * item.qty).toLocaleString()}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button className="btn btn-ghost" onClick={() => setShopItems(p => [...p, blankShopItem()])}
+            style={{ border: '1.5px dashed var(--border)' }}>
+            + Add Another Item
+          </button>
+
+          {shopTotal > 0 && (
+            <div className="card" style={{ background: 'rgba(255,176,32,0.06)', borderColor: 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--muted)', fontSize: 13 }}>Total owed to {shopName || '…'}</span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>Rs {shopTotal.toLocaleString()}</span>
+            </div>
+          )}
+
+          <button className="btn btn-cyan" onClick={saveShopPurchase} disabled={shopSaving}>
+            {shopSaving ? 'Saving…' : '🛍️ Record Shop Purchase'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
