@@ -627,13 +627,14 @@ function StockTab({ products }) {
 
 // ─── REPAIR TAB ───────────────────────────────────────────────────────────────
 function RepairTab() {
-  const [view, setView]     = useState('list');
-  const [repairs, setRepairs] = useState([]);
+  const [view, setView]         = useState('list');
+  const [repairs, setRepairs]   = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [loadingList, setLoadingList]   = useState(false);
   const [updatingId, setUpdatingId]     = useState(null);
+  const [discountInputs, setDiscountInputs] = useState({});
 
-  const init = { customer: '', phone: '', issue: '', customerPrice: '', status: 'Pending', payment: 'Cash' };
+  const init = { customer: '', customerPhone: '', phone: '', issue: '', customerPrice: '', status: 'Pending', payment: 'Cash' };
   const [form, setForm]   = useState(init);
   const [saving, setSaving] = useState(false);
   const [done, setDone]   = useState(false);
@@ -643,46 +644,55 @@ function RepairTab() {
   async function loadRepairs() {
     setLoadingList(true);
     const r = await fetch('/api/repairs');
-    setRepairs(await r.json());
+    const data = await r.json();
+    setRepairs(data);
+    const inits = {};
+    data.forEach(rep => { inits[rep.id] = Number(rep.repair_discount) || 0; });
+    setDiscountInputs(inits);
     setLoadingList(false);
   }
 
   async function updateStatus(id, status) {
     setUpdatingId(id);
-    await fetch(`/api/repairs/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
+    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
   }
 
   async function updatePayment(id, payment_method) {
     setUpdatingId(id);
-    await fetch(`/api/repairs/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment_method }),
-    });
+    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payment_method }) });
     setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, payment_method } : r));
+  }
+
+  async function updateDiscount(id) {
+    const disc = Math.max(0, parseFloat(discountInputs[id]) || 0);
+    setUpdatingId(id);
+    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repair_discount: disc }) });
+    setUpdatingId(null);
+    setRepairs(prev => prev.map(r => r.id === id ? { ...r, repair_discount: disc } : r));
+    setDiscountInputs(prev => ({ ...prev, [id]: disc }));
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   async function saveRepair() {
-    if (!form.customer || !form.phone || !form.issue) { alert('Fill customer name, phone model, and issue'); return; }
+    if (!form.customer || !form.customerPhone || !form.issue) {
+      alert('Customer name, phone number, and issue are all required');
+      return;
+    }
     setSaving(true);
     const res = await fetch('/api/repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        customer_name: form.customer,
-        phone_model: form.phone,
-        issue: form.issue,
+        customer_name:  form.customer,
+        customer_phone: form.customerPhone,
+        phone_model:    form.phone || '—',
+        issue:          form.issue,
         customer_price: parseFloat(form.customerPrice) || 0,
-        status: form.status,
+        status:         form.status,
         payment_method: form.payment,
       }),
     });
@@ -692,7 +702,6 @@ function RepairTab() {
   }
 
   const filtered = statusFilter === 'all' ? repairs : repairs.filter(r => r.status === statusFilter);
-
   const statusColor = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
   const statusBg    = { Pending: 'rgba(255,176,32,0.12)', 'In Progress': 'rgba(0,212,255,0.12)', Done: 'rgba(0,230,118,0.12)', Delivered: 'rgba(112,112,160,0.12)' };
 
@@ -724,63 +733,91 @@ function RepairTab() {
           {!loadingList && filtered.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>No repairs found</div>}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map(r => (
-              <div key={r.id} className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{r.customer_name}</div>
-                      {r.payment_method === 'Credit' && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: 'rgba(255,176,32,0.15)', color: 'var(--amber)' }}>
-                          CREDIT{r.credit_cleared ? ' ✓' : ''}
-                        </span>
+            {filtered.map(r => {
+              const charge      = Number(r.customer_price) || 0;
+              const savedDisc   = Number(r.repair_discount) || 0;
+              const finalAmt    = Math.max(0, charge - savedDisc);
+              const pendingDisc = discountInputs[r.id] ?? savedDisc;
+              return (
+                <div key={r.id} className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{r.customer_name}</div>
+                        {r.payment_method === 'Credit' && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: 'rgba(255,176,32,0.15)', color: 'var(--amber)' }}>
+                            CREDIT{r.credit_cleared ? ' ✓' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {r.customer_phone && (
+                        <div style={{ fontSize: 12, color: 'var(--cyan)', marginTop: 2, fontWeight: 600 }}>📞 {r.customer_phone}</div>
                       )}
+                      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 3 }}>{r.phone_model !== '—' ? r.phone_model : ''}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 4 }}>{r.issue}</div>
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{r.phone_model}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text)', marginTop: 4 }}>{r.issue}</div>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: statusBg[r.status], color: statusColor[r.status], whiteSpace: 'nowrap', marginLeft: 8 }}>
+                      {r.status}
+                    </span>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: statusBg[r.status], color: statusColor[r.status], whiteSpace: 'nowrap', marginLeft: 8 }}>
-                    {r.status}
-                  </span>
-                </div>
-                {r.customer_price > 0 && (
-                  <div style={{ fontSize: 13, color: 'var(--cyan)', fontWeight: 600, marginBottom: 8 }}>
-                    Rs {Number(r.customer_price).toLocaleString()}
-                  </div>
-                )}
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
-                  {fmtDateTime(r.created_at)}
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>UPDATE STATUS</div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {STATUSES.map(s => (
-                      <button key={s} onClick={() => updateStatus(r.id, s)} disabled={updatingId === r.id || r.status === s}
-                        style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)', background: r.status === s ? statusBg[s] : 'transparent', color: r.status === s ? statusColor[s] : 'var(--muted)', cursor: r.status === s ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PAYMENT</div>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {PAYMENTS.map(p => {
-                      const cur = r.payment_method || 'Cash';
-                      return (
-                        <button key={p} onClick={() => updatePayment(r.id, p)} disabled={updatingId === r.id || cur === p}
-                          style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)',
-                            background: cur === p ? (p === 'Credit' ? 'rgba(255,176,32,0.15)' : 'rgba(0,212,255,0.12)') : 'transparent',
-                            color: cur === p ? (p === 'Credit' ? 'var(--amber)' : 'var(--cyan)') : 'var(--muted)',
-                            cursor: cur === p ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
-                          {p}
+
+                  {charge > 0 && (
+                    <div style={{ background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.12)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Charge 🔒</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--cyan)' }}>Rs {charge.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount (Rs)</span>
+                        <input type="number" min="0" max={charge}
+                          value={pendingDisc}
+                          onChange={e => setDiscountInputs(prev => ({ ...prev, [r.id]: e.target.value }))}
+                          style={{ flex: 1, textAlign: 'right', fontSize: 14, padding: '6px 10px' }} />
+                        <button onClick={() => updateDiscount(r.id)} disabled={updatingId === r.id}
+                          style={{ padding: '6px 11px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#000', cursor: 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
+                          Save
                         </button>
-                      );
-                    })}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Final</span>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--green)' }}>Rs {finalAmt.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>{fmtDateTime(r.created_at)}</div>
+
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>UPDATE STATUS</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {STATUSES.map(s => (
+                        <button key={s} onClick={() => updateStatus(r.id, s)} disabled={updatingId === r.id || r.status === s}
+                          style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)', background: r.status === s ? statusBg[s] : 'transparent', color: r.status === s ? statusColor[s] : 'var(--muted)', cursor: r.status === s ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PAYMENT</div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {PAYMENTS.map(p => {
+                        const cur = r.payment_method || 'Cash';
+                        return (
+                          <button key={p} onClick={() => updatePayment(r.id, p)} disabled={updatingId === r.id || cur === p}
+                            style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)',
+                              background: cur === p ? (p === 'Credit' ? 'rgba(255,176,32,0.15)' : 'rgba(0,212,255,0.12)') : 'transparent',
+                              color: cur === p ? (p === 'Credit' ? 'var(--amber)' : 'var(--cyan)') : 'var(--muted)',
+                              cursor: cur === p ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
+                            {p}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -788,16 +825,27 @@ function RepairTab() {
       {/* ── Add view ── */}
       {view === 'add' && (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {[['CUSTOMER NAME', 'customer', 'text', 'e.g. Ram Bahadur'], ['PHONE MODEL', 'phone', 'text', 'e.g. iPhone 14 Pro'], ['CUSTOMER PRICE (Rs)', 'customerPrice', 'number', '0']].map(([lbl, key, type, ph]) => (
-            <div key={key}>
-              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>{lbl}</label>
-              <input type={type} placeholder={ph} value={form[key]} onChange={e => set(key, e.target.value)} />
-            </div>
-          ))}
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>ISSUE</label>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER NAME *</label>
+            <input type="text" placeholder="e.g. Ram Bahadur" value={form.customer} onChange={e => set('customer', e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER PHONE NUMBER *</label>
+            <input type="tel" placeholder="e.g. 98XXXXXXXX" value={form.customerPhone} onChange={e => set('customerPhone', e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>DEVICE MODEL (Optional)</label>
+            <input type="text" placeholder="e.g. iPhone 14 Pro" value={form.phone} onChange={e => set('phone', e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>ISSUE / DESCRIPTION *</label>
             <textarea value={form.issue} onChange={e => set('issue', e.target.value)} placeholder="Describe the problem…" rows={3}
               style={{ background: '#12122a', border: '1.5px solid var(--border)', color: 'var(--text)', borderRadius: 10, padding: '12px 14px', fontSize: 15, width: '100%', outline: 'none', resize: 'vertical' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER PRICE (Rs)</label>
+            <input type="number" placeholder="0" value={form.customerPrice} onChange={e => set('customerPrice', e.target.value)} />
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Once saved, amount is locked. Use Discount on the card to adjust later.</div>
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STATUS</label>
@@ -809,10 +857,8 @@ function RepairTab() {
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>PAYMENT METHOD</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PAYMENTS.map(p => (
-                <button key={p} type="button"
-                  className={`pay-btn ${form.payment === p ? 'selected' : ''}`}
-                  style={{ fontSize: 11 }}
-                  onClick={() => set('payment', p)}>{p}</button>
+                <button key={p} type="button" className={`pay-btn ${form.payment === p ? 'selected' : ''}`}
+                  style={{ fontSize: 11 }} onClick={() => set('payment', p)}>{p}</button>
               ))}
             </div>
           </div>
