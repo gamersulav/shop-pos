@@ -708,9 +708,10 @@ function ShopTabsPanel() {
   });
   const shops = Object.keys(grouped).sort();
 
-  const totalPending = rows
-    .filter(r => !r.settled)
-    .reduce((s, r) => s + Number(r.unit_cost) * Number(r.quantity), 0);
+  const pendingRows   = rows.filter(r => !r.settled);
+  const totalWeOwe   = pendingRows.filter(r => r.direction !== 'out').reduce((s, r) => s + Number(r.unit_cost) * Number(r.quantity), 0);
+  const totalTheyOwe = pendingRows.filter(r => r.direction === 'out').reduce((s, r) => s + Number(r.unit_cost) * Number(r.quantity), 0);
+  const totalNet = totalTheyOwe - totalWeOwe;
 
   return (
     <div>
@@ -718,10 +719,20 @@ function ShopTabsPanel() {
         Purchases from nearby shops — track and settle weekly/monthly.
       </p>
 
-      {totalPending > 0 && filter === 'pending' && (
-        <div className="card" style={{ marginBottom: 14, background: 'rgba(255,176,32,0.06)', borderColor: 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Total pending</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>Rs {totalPending.toLocaleString()}</div>
+      {filter === 'pending' && pendingRows.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, background: 'rgba(0,0,0,0.1)', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--amber)' }}>Rs {totalWeOwe.toLocaleString()}</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)' }}>We owe</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--green)' }}>Rs {totalTheyOwe.toLocaleString()}</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)' }}>They owe</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: totalNet >= 0 ? 'var(--green)' : 'var(--amber)' }}>Rs {Math.abs(totalNet).toLocaleString()}</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)' }}>Net {totalNet >= 0 ? '(+us)' : '(+them)'}</div>
+          </div>
         </div>
       )}
 
@@ -767,28 +778,61 @@ function ShopTabsPanel() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                {items.map(item => (
-                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: item.settled ? 'rgba(112,112,160,0.06)' : 'rgba(255,176,32,0.06)', borderRadius: 8, opacity: item.settled ? 0.6 : 1 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{item.product_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {item.quantity} × Rs {Number(item.unit_cost).toLocaleString()} · {fmtDate(item.created_at, { day: 'numeric', month: 'short' })}
-                        {item.settled && item.settled_at && <span style={{ color: 'var(--green)', marginLeft: 6 }}>✓ paid {fmtDate(item.settled_at, { day: 'numeric', month: 'short' })}</span>}
+              {(() => {
+                const weOwe   = items.filter(i => i.direction !== 'out').reduce((s, i) => s + Number(i.unit_cost) * Number(i.quantity), 0);
+                const theyOwe = items.filter(i => i.direction === 'out').reduce((s, i) => s + Number(i.unit_cost) * Number(i.quantity), 0);
+                const net = theyOwe - weOwe;
+                return (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,176,32,0.08)', borderRadius: 8, border: '1px solid rgba(255,176,32,0.2)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>We owe them</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--amber)' }}>Rs {weOwe.toLocaleString()}</div>
+                      </div>
+                      <div style={{ flex: 1, padding: '8px 10px', background: 'rgba(0,230,118,0.08)', borderRadius: 8, border: '1px solid rgba(0,230,118,0.2)' }}>
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>They owe us</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--green)' }}>Rs {theyOwe.toLocaleString()}</div>
                       </div>
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: item.settled ? 'var(--muted)' : 'var(--amber)', marginLeft: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: net === 0 ? 'rgba(112,112,160,0.06)' : net > 0 ? 'rgba(0,230,118,0.06)' : 'rgba(255,176,32,0.06)', borderRadius: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Net</span>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontWeight: 800, color: net === 0 ? 'var(--muted)' : net > 0 ? 'var(--green)' : 'var(--amber)' }}>
+                          Rs {Math.abs(net).toLocaleString()}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                          {net === 0 ? 'even' : net > 0 ? 'they owe us' : 'we owe them'}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+                {items.map(item => (
+                  <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: item.settled ? 'rgba(112,112,160,0.05)' : item.direction === 'out' ? 'rgba(0,230,118,0.05)' : 'rgba(255,176,32,0.05)', borderRadius: 8, opacity: item.settled ? 0.55 : 1 }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, marginRight: 6, background: item.direction === 'out' ? 'rgba(0,230,118,0.15)' : 'rgba(255,176,32,0.15)', color: item.direction === 'out' ? 'var(--green)' : 'var(--amber)' }}>
+                        {item.direction === 'out' ? '↑ TO' : '↓ FROM'}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{item.product_name}</span>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, paddingLeft: 2 }}>
+                        {item.quantity} × Rs {Number(item.unit_cost).toLocaleString()} · {fmtDate(item.created_at, { day: 'numeric', month: 'short' })}
+                        {item.settled && item.settled_at && <span style={{ color: 'var(--green)', marginLeft: 6 }}>✓ settled {fmtDate(item.settled_at, { day: 'numeric', month: 'short' })}</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: item.settled ? 'var(--muted)' : item.direction === 'out' ? 'var(--green)' : 'var(--amber)', marginLeft: 10 }}>
                       Rs {(Number(item.unit_cost) * Number(item.quantity)).toLocaleString()}
                     </div>
                   </div>
                 ))}
               </div>
 
-              {shopTotal > 0 && (
-                <button className="btn btn-green" style={{ minHeight: 44 }}
-                  onClick={() => settle(shopName)} disabled={isSettling}>
-                  {isSettling ? 'Settling…' : `✓ Mark All Paid — Rs ${shopTotal.toLocaleString()}`}
-                </button>
+              {filter === 'pending' && items.some(i => !i.settled) && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: '6px 0' }}>
+                  Settled by staff from the Stock → Shop Tab screen
+                </div>
               )}
             </div>
           );

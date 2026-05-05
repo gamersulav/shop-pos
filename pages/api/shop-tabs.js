@@ -18,25 +18,28 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { shopName, items } = req.body;
+    const { shopName, direction = 'in', items } = req.body;
     if (!shopName?.trim() || !items?.length) {
       return res.status(400).json({ error: 'Shop name and items required' });
     }
+    const dir = direction === 'out' ? 'out' : 'in';
     for (const item of items) {
       if (!item.productName || !item.quantity) continue;
       await db.run(
-        'INSERT INTO shop_tabs (shop_name,product_id,product_name,quantity,unit_cost,user_id) VALUES (?,?,?,?,?,?)',
-        [shopName.trim(), item.productId || null, item.productName, Number(item.quantity), Number(item.unitCost) || 0, session.id]
+        'INSERT INTO shop_tabs (shop_name,direction,product_id,product_name,quantity,unit_cost,user_id) VALUES (?,?,?,?,?,?,?)',
+        [shopName.trim(), dir, item.productId || null, item.productName, Number(item.quantity), Number(item.unitCost) || 0, session.id]
       );
       if (item.productId) {
-        await db.run('UPDATE products SET stock=stock+? WHERE id=?', [Number(item.quantity), Number(item.productId)]);
+        // 'in' = we bought from them → increase our stock
+        // 'out' = they took from us → decrease our stock
+        const stockDelta = dir === 'out' ? -Number(item.quantity) : Number(item.quantity);
+        await db.run('UPDATE products SET stock=stock+? WHERE id=?', [stockDelta, Number(item.productId)]);
       }
     }
     return res.json({ ok: true });
   }
 
   if (req.method === 'PUT') {
-    if (session.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const { shopName } = req.body;
     if (!shopName) return res.status(400).json({ error: 'Shop name required' });
     await db.run(

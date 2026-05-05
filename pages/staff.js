@@ -670,20 +670,46 @@ function StockTab({ products }) {
   const [saving, setSaving]       = useState(false);
   const [done, setDone]           = useState(false);
 
-  // Shop purchase
+  // Shop tab - list view
+  const [shopView, setShopView]       = useState('list');
+  const [shopRows, setShopRows]       = useState([]);
+  const [loadingShops, setLoadingShops] = useState(false);
+  const [settling, setSettling]       = useState('');
+
+  // Shop tab - add form
   const blankShopItem = () => ({ productId: '', productName: '', qty: 1, unitCost: '' });
-  const [shopName, setShopName]   = useState('');
-  const [shopItems, setShopItems] = useState([blankShopItem()]);
-  const [recentShops, setRecentShops] = useState([]);
+  const [direction, setDirection]     = useState('in');
+  const [shopName, setShopName]       = useState('');
+  const [shopItems, setShopItems]     = useState([blankShopItem()]);
   const [shopSaving, setShopSaving]   = useState(false);
   const [shopDone, setShopDone]       = useState(false);
 
   useEffect(() => {
-    fetch('/api/shop-tabs').then(r => r.json()).then(data => {
-      const names = [...new Set(data.map(d => d.shop_name))].slice(0, 8);
-      setRecentShops(names);
-    }).catch(() => {});
-  }, []);
+    if (subTab === 'shop' && shopView === 'list') loadShops();
+  }, [subTab, shopView]);
+
+  async function loadShops() {
+    setLoadingShops(true);
+    const r = await fetch('/api/shop-tabs');
+    setShopRows(await r.json());
+    setLoadingShops(false);
+  }
+
+  async function settleShop(name) {
+    setSettling(name);
+    await fetch('/api/shop-tabs', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopName: name }),
+    });
+    setSettling('');
+    loadShops();
+  }
+
+  const grouped = {};
+  shopRows.forEach(r => { if (!grouped[r.shop_name]) grouped[r.shop_name] = []; grouped[r.shop_name].push(r); });
+  const shopNames   = Object.keys(grouped).sort();
+  const recentShops = shopNames.slice(0, 8);
 
   async function saveRegularStock() {
     if (!productId) { alert('Select a product'); return; }
@@ -720,6 +746,7 @@ function StockTab({ products }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         shopName: shopName.trim(),
+        direction,
         items: filled.map(i => ({
           productId:   i.productId ? Number(i.productId) : null,
           productName: i.productName,
@@ -731,7 +758,13 @@ function StockTab({ products }) {
     setShopSaving(false);
     if (res.ok) {
       setShopDone(true);
-      setTimeout(() => { setShopName(''); setShopItems([blankShopItem()]); setShopDone(false); }, 1800);
+      setTimeout(() => {
+        setDirection('in');
+        setShopName('');
+        setShopItems([blankShopItem()]);
+        setShopDone(false);
+        setShopView('list');
+      }, 1500);
     } else alert('Error saving. Try again.');
   }
 
@@ -778,15 +811,121 @@ function StockTab({ products }) {
         </div>
       )}
 
-      {subTab === 'shop' && (
+      {subTab === 'shop' && shopView === 'list' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{shopNames.length} shop{shopNames.length !== 1 ? 's' : ''}</span>
+            <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }}
+              onClick={() => setShopView('add')}>+ Add Entry</button>
+          </div>
+
+          {loadingShops && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Loading…</div>}
+
+          {!loadingShops && shopNames.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 14 }}>
+              No shop tabs yet.<br />
+              <span style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+                Tap "+ Add Entry" to record a purchase from or sale to a nearby shop.
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {shopNames.map(name => {
+              const items   = grouped[name];
+              const weOwe   = items.filter(i => i.direction !== 'out').reduce((s, i) => s + Number(i.unit_cost) * Number(i.quantity), 0);
+              const theyOwe = items.filter(i => i.direction === 'out').reduce((s, i) => s + Number(i.unit_cost) * Number(i.quantity), 0);
+              const net     = theyOwe - weOwe;
+              const isSettling = settling === name;
+              return (
+                <div key={name} className="card">
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>{name}</div>
+
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    <div style={{ flex: 1, padding: '10px 12px', background: 'rgba(255,176,32,0.08)', borderRadius: 10, border: '1px solid rgba(255,176,32,0.2)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>We owe them</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--amber)' }}>Rs {weOwe.toLocaleString()}</div>
+                    </div>
+                    <div style={{ flex: 1, padding: '10px 12px', background: 'rgba(0,230,118,0.08)', borderRadius: 10, border: '1px solid rgba(0,230,118,0.2)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>They owe us</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--green)' }}>Rs {theyOwe.toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: net === 0 ? 'rgba(112,112,160,0.08)' : net > 0 ? 'rgba(0,230,118,0.08)' : 'rgba(255,176,32,0.08)', borderRadius: 10, marginBottom: 12 }}>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>Net balance</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: net === 0 ? 'var(--muted)' : net > 0 ? 'var(--green)' : 'var(--amber)' }}>
+                        Rs {Math.abs(net).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {net === 0 ? 'Even' : net > 0 ? 'they owe us' : 'we owe them'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+                    {items.map(item => (
+                      <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '5px 6px' }}>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, marginRight: 6,
+                            background: item.direction === 'out' ? 'rgba(0,230,118,0.12)' : 'rgba(255,176,32,0.12)',
+                            color: item.direction === 'out' ? 'var(--green)' : 'var(--amber)' }}>
+                            {item.direction === 'out' ? '↑ TO' : '↓ FROM'}
+                          </span>
+                          {item.product_name} × {item.quantity}
+                        </div>
+                        <span style={{ fontWeight: 600, color: item.direction === 'out' ? 'var(--green)' : 'var(--amber)', marginLeft: 8 }}>
+                          Rs {(Number(item.unit_cost) * Number(item.quantity)).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button className="btn btn-green" style={{ minHeight: 44 }}
+                    onClick={() => settleShop(name)} disabled={isSettling || (weOwe === 0 && theyOwe === 0)}>
+                    {isSettling ? 'Settling…' : `✓ Settle Tab with ${name}`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {subTab === 'shop' && shopView === 'add' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="card">
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>SHOP NAME *</label>
-            <input type="text" placeholder="e.g. Sharma Traders" value={shopName}
-              onChange={e => setShopName(e.target.value)} list="recent-shops-list" />
-            <datalist id="recent-shops-list">
-              {recentShops.map(s => <option key={s} value={s} />)}
-            </datalist>
+          <button onClick={() => { setShopView('list'); setShopName(''); setShopItems([blankShopItem()]); }}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, padding: 0, textAlign: 'left' }}>
+            ← Back
+          </button>
+
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>DIRECTION</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[['in','📥 We bought from them'],['out','📤 They took from us']].map(([v, lbl]) => (
+                  <button key={v} onClick={() => setDirection(v)}
+                    className={`btn btn-sm ${direction === v ? (v === 'out' ? 'btn-green' : 'btn-amber') : 'btn-ghost'}`}
+                    style={{ flex: 1, fontSize: 11 }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', padding: '6px 10px', background: direction === 'out' ? 'rgba(0,230,118,0.06)' : 'rgba(255,176,32,0.06)', borderRadius: 8 }}>
+                {direction === 'in'
+                  ? '📥 Recording stock we received from them — we will owe them'
+                  : '📤 Recording stock they took from us — they will owe us'}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>SHOP NAME *</label>
+              <input type="text" placeholder="e.g. Sharma Traders" value={shopName}
+                onChange={e => setShopName(e.target.value)} list="recent-shops-list" />
+              <datalist id="recent-shops-list">
+                {recentShops.map(s => <option key={s} value={s} />)}
+              </datalist>
+            </div>
           </div>
 
           {shopItems.map((item, idx) => (
@@ -818,7 +957,7 @@ function StockTab({ products }) {
                 </div>
               </div>
               {item.productName && item.unitCost !== '' && (
-                <div style={{ textAlign: 'right', fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
+                <div style={{ textAlign: 'right', fontSize: 13, color: direction === 'out' ? 'var(--green)' : 'var(--amber)', fontWeight: 600 }}>
                   Rs {(Number(item.unitCost) * item.qty).toLocaleString()}
                 </div>
               )}
@@ -831,14 +970,18 @@ function StockTab({ products }) {
           </button>
 
           {shopTotal > 0 && (
-            <div className="card" style={{ background: 'rgba(255,176,32,0.06)', borderColor: 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>Total owed to {shopName || '…'}</span>
-              <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--amber)' }}>Rs {shopTotal.toLocaleString()}</span>
+            <div className="card" style={{ background: direction === 'out' ? 'rgba(0,230,118,0.06)' : 'rgba(255,176,32,0.06)', borderColor: direction === 'out' ? 'rgba(0,230,118,0.25)' : 'rgba(255,176,32,0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                {direction === 'out' ? `${shopName || '…'} owes us` : `We owe ${shopName || '…'}`}
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 800, color: direction === 'out' ? 'var(--green)' : 'var(--amber)' }}>
+                Rs {shopTotal.toLocaleString()}
+              </span>
             </div>
           )}
 
           <button className="btn btn-cyan" onClick={saveShopPurchase} disabled={shopSaving}>
-            {shopSaving ? 'Saving…' : '🛍️ Record Shop Purchase'}
+            {shopSaving ? 'Saving…' : '💾 Save Entry'}
           </button>
         </div>
       )}
