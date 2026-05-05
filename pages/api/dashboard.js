@@ -22,9 +22,8 @@ export default async function handler(req, res) {
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
   const todayProfit = await db.queryOne(`
-    SELECT COALESCE(SUM(s.total_amount - ic.cost), 0) as profit
-    FROM sales s
-    JOIN (SELECT sale_id, SUM(quantity*cost_price) as cost FROM sale_items GROUP BY sale_id) ic ON ic.sale_id=s.id
+    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price)),0) as profit
+    FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
   const todayReturns = await db.queryOne(`
@@ -39,9 +38,8 @@ export default async function handler(req, res) {
     FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH}`);
 
   const monthlyProfit = await db.queryOne(`
-    SELECT COALESCE(SUM(s.total_amount - ic.cost), 0) as profit
-    FROM sales s
-    JOIN (SELECT sale_id, SUM(quantity*cost_price) as cost FROM sale_items GROUP BY sale_id) ic ON ic.sale_id=s.id
+    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price)),0) as profit
+    FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
 
   const monthlyReturns = await db.queryOne(`
@@ -61,7 +59,7 @@ export default async function handler(req, res) {
     SELECT si.product_name as name,
            SUM(si.quantity) as qty,
            SUM(si.quantity*si.unit_price) as revenue,
-           SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)) as profit
+           SUM(si.quantity*(si.unit_price-si.cost_price)) as profit
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}
     GROUP BY si.product_name ORDER BY qty DESC LIMIT 6`);
@@ -76,13 +74,11 @@ export default async function handler(req, res) {
   // ── Used phones ───────────────────────────────────────────────────────────
   const phoneStats = await db.queryOne(`
     SELECT
-      COUNT(CASE WHEN up.status='available' THEN 1 END) as available,
-      COUNT(CASE WHEN up.status='sold' AND ${nptMonth('up.sold_at')} = ${NPT_MONTH} THEN 1 END) as sold_month,
-      COALESCE(SUM(CASE WHEN up.status='sold' AND ${nptMonth('up.sold_at')} = ${NPT_MONTH}
-        THEN COALESCE(s.total_amount, up.selling_price) - up.cost_price END), 0) as phone_profit_month,
-      COUNT(CASE WHEN up.status='available' AND up.selling_price=0 THEN 1 END) as needs_pricing
-    FROM used_phones up
-    LEFT JOIN sales s ON s.id = up.sold_in_sale`);
+      COUNT(CASE WHEN status='available' THEN 1 END) as available,
+      COUNT(CASE WHEN status='sold' AND ${nptMonth('sold_at')} = ${NPT_MONTH} THEN 1 END) as sold_month,
+      COALESCE(SUM(CASE WHEN status='sold' AND ${nptMonth('sold_at')} = ${NPT_MONTH} THEN selling_price-cost_price END),0) as phone_profit_month,
+      COUNT(CASE WHEN status='available' AND selling_price=0 THEN 1 END) as needs_pricing
+    FROM used_phones`);
 
   const todayRev    = Number(today?.revenue    || 0) - Number(todayReturns?.revenue  || 0);
   const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0);
