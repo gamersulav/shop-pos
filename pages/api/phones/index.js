@@ -1,6 +1,8 @@
 import { getDb } from '../../../lib/db';
 import { getSession } from '../../../lib/auth';
 
+export const config = { api: { bodyParser: { sizeLimit: '8mb' } } };
+
 export default async function handler(req, res) {
   const session = await getSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -18,12 +20,12 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { model, condition = 'Good', notes = '' } = req.body;
+    const { model, condition = 'Good', notes = '', photos = null } = req.body;
     if (!model?.trim()) return res.status(400).json({ error: 'Phone model is required' });
-
+    const photosJson = photos?.length ? JSON.stringify(photos) : null;
     const { lastId } = await db.run(
-      'INSERT INTO used_phones (model,condition,notes,stocked_by) VALUES (?,?,?,?)',
-      [model.trim(), condition, notes, session.id]
+      'INSERT INTO used_phones (model,condition,notes,photos,stocked_by) VALUES (?,?,?,?,?)',
+      [model.trim(), condition, notes, photosJson, session.id]
     );
     return res.json({ ok: true, id: lastId });
   }

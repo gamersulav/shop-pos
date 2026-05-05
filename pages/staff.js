@@ -2,6 +2,26 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 
+async function compressImage(file, maxPx = 540, quality = 0.58) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 const TABS = [
   { id: 'sale',     label: '💰 Sale' },
   { id: 'phones',   label: '📱 Phones' },
@@ -329,7 +349,8 @@ function PhonesTab() {
   const [done, setDone]                   = useState('');
   const [sortBy, setSortBy]               = useState('recents');
   const [search, setSearch]               = useState('');
-  const [stockForm, setStockForm]         = useState({ model: '', condition: 'Good', notes: '' });
+  const [stockForm, setStockForm]         = useState({ model: '', condition: 'Good', notes: '', photos: [] });
+  const [shareToast, setShareToast]       = useState('');
 
   useEffect(() => { loadPhones(); }, []);
 
@@ -353,18 +374,39 @@ function PhonesTab() {
     ? sortedAvailable().filter(p => p.model.toLowerCase().includes(search.toLowerCase()))
     : sortedAvailable();
 
+  async function sharePhone(p) {
+    const txt = `📱 ${p.model}\nCondition: ${p.condition}\nPrice: Rs ${Number(p.selling_price).toLocaleString()}${p.notes ? '\nNotes: ' + p.notes : ''}`;
+    if (navigator.share) {
+      try { await navigator.share({ text: txt }); return; } catch {}
+    }
+    try { await navigator.clipboard.writeText(txt); } catch {}
+    setShareToast(p.id);
+    setTimeout(() => setShareToast(''), 2200);
+  }
+
+  async function addPhonePhoto(e) {
+    const files = Array.from(e.target.files || []);
+    const current = stockForm.photos || [];
+    if (current.length >= 6) { alert('Max 6 photos'); return; }
+    const slots = 6 - current.length;
+    const toAdd = files.slice(0, slots);
+    const compressed = await Promise.all(toAdd.map(f => compressImage(f)));
+    setStockForm(f => ({ ...f, photos: [...(f.photos || []), ...compressed] }));
+    e.target.value = '';
+  }
+
   async function stockIn() {
     if (!stockForm.model.trim()) { alert('Enter phone model'); return; }
     setSaving(true);
     const res = await fetch('/api/phones', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(stockForm),
+      body: JSON.stringify({ model: stockForm.model, condition: stockForm.condition, notes: stockForm.notes, photos: stockForm.photos }),
     });
     setSaving(false);
     if (res.ok) {
       setDone('stocked');
-      setStockForm({ model: '', condition: 'Good', notes: '' });
+      setStockForm({ model: '', condition: 'Good', notes: '', photos: [] });
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
@@ -476,6 +518,29 @@ function PhonesTab() {
             <input type="text" placeholder="Any damage, accessories included, etc."
               value={stockForm.notes} onChange={e => setStockForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>
+              PHOTOS ({(stockForm.photos||[]).length}/6) — Optional
+            </label>
+            <label style={{ display: 'block', cursor: 'pointer', padding: '10px 14px', background: 'rgba(0,212,255,0.06)', border: '1.5px dashed rgba(0,212,255,0.3)', borderRadius: 10, textAlign: 'center', fontSize: 13, color: 'var(--cyan)' }}>
+              📷 Take Photo / Choose from Gallery
+              <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                onChange={addPhonePhoto} disabled={(stockForm.photos||[]).length >= 6} />
+            </label>
+            {(stockForm.photos||[]).length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {stockForm.photos.map((src, i) => (
+                  <div key={i} style={{ position: 'relative' }}>
+                    <img src={src} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
+                    <button onClick={() => setStockForm(f => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--red)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
             ℹ️ Price will be set by the owner before selling
           </div>
@@ -550,26 +615,47 @@ function PhonesTab() {
           No phones match "{search}"
         </div>
       )}
-      {filteredPhones.map(p => (
-        <div key={p.id} className="card" style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{p.model}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                Condition: <span style={{ color: 'var(--text)' }}>{p.condition}</span>
-                {p.notes ? <span> · {p.notes}</span> : null}
+      {shareToast && (
+        <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', background: '#1e1e3a', border: '1.5px solid var(--cyan)', borderRadius: 10, padding: '10px 20px', fontSize: 13, color: 'var(--cyan)', fontWeight: 700, zIndex: 999, whiteSpace: 'nowrap' }}>
+          ✓ Copied to clipboard!
+        </div>
+      )}
+      {filteredPhones.map(p => {
+        const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
+        return (
+          <div key={p.id} className="card" style={{ marginBottom: 10 }}>
+            {photos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10, paddingBottom: 2 }}>
+                {photos.map((src, i) => (
+                  <img key={i} src={src} alt="" style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{p.model}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  Condition: <span style={{ color: 'var(--text)' }}>{p.condition}</span>
+                  {p.notes ? <span> · {p.notes}</span> : null}
+                </div>
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--cyan)', marginLeft: 12 }}>
+                Rs {Number(p.selling_price).toLocaleString()}
               </div>
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--cyan)', marginLeft: 12 }}>
-              Rs {Number(p.selling_price).toLocaleString()}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => sharePhone(p)}
+                style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                📤 Share
+              </button>
+              <button className="btn btn-green" style={{ minHeight: 44, flex: 1 }}
+                onClick={() => { setSelling(p); setPayment('Cash'); setPhoneDiscount(''); setCreditCustomer(''); setView('selling'); }}>
+                💰 Sell
+              </button>
             </div>
           </div>
-          <button className="btn btn-green" style={{ minHeight: 44 }}
-            onClick={() => { setSelling(p); setPayment('Cash'); setPhoneDiscount(''); setCreditCustomer(''); setView('selling'); }}>
-            💰 Sell This Phone
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -874,9 +960,17 @@ function RepairTab() {
 // ─── PRODUCTS TAB ─────────────────────────────────────────────────────────────
 function StaffProductsTab({ products, reload }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ name: '', selling_price: '' });
+  const [form, setForm]       = useState({ name: '', selling_price: '', photo: '' });
   const [saving, setSaving]   = useState(false);
   const [done, setDone]       = useState('');
+
+  async function handleProductPhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 480, 0.6);
+    setForm(f => ({ ...f, photo: compressed }));
+    e.target.value = '';
+  }
 
   async function addProduct() {
     if (!form.name.trim() || !form.selling_price) { alert('Enter product name and selling price'); return; }
@@ -884,11 +978,11 @@ function StaffProductsTab({ products, reload }) {
     const res = await fetch('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: form.name.trim(), selling_price: parseFloat(form.selling_price) }),
+      body: JSON.stringify({ name: form.name.trim(), selling_price: parseFloat(form.selling_price), photo: form.photo || null }),
     });
     setSaving(false);
     if (res.ok) {
-      setDone(form.name); setForm({ name: '', selling_price: '' }); setShowAdd(false); reload();
+      setDone(form.name); setForm({ name: '', selling_price: '', photo: '' }); setShowAdd(false); reload();
       setTimeout(() => setDone(''), 3000);
     } else alert('Error saving. Try again.');
   }
@@ -914,6 +1008,23 @@ function StaffProductsTab({ products, reload }) {
               <input type={type} placeholder={ph} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PRODUCT PHOTO — Optional</label>
+            {form.photo ? (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <img src={form.photo} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
+                <button onClick={() => setForm(f => ({ ...f, photo: '' }))}
+                  style={{ background: 'none', border: '1.5px solid var(--border)', borderRadius: 8, color: 'var(--muted)', padding: '6px 12px', cursor: 'pointer', fontSize: 12 }}>
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <label style={{ display: 'block', cursor: 'pointer', padding: '10px 14px', background: 'rgba(0,212,255,0.06)', border: '1.5px dashed rgba(0,212,255,0.3)', borderRadius: 10, textAlign: 'center', fontSize: 13, color: 'var(--cyan)' }}>
+                📷 Take Photo / Choose from Gallery
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleProductPhoto} />
+              </label>
+            )}
+          </div>
           <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
             ℹ️ Purchase cost will be set by the owner
           </div>
@@ -926,8 +1037,11 @@ function StaffProductsTab({ products, reload }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {products.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No products yet.</div>}
         {products.map(p => (
-          <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
+          <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            {p.photo && (
+              <img src={p.photo} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                 Price: <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.selling_price}</span>
@@ -935,7 +1049,7 @@ function StaffProductsTab({ products, reload }) {
                 Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{p.stock}</span>
               </div>
             </div>
-            {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6 }}>LOW</span>}
+            {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
           </div>
         ))}
       </div>

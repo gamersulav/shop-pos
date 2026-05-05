@@ -1,6 +1,8 @@
 import { getDb } from '../../../lib/db';
 import { getSession } from '../../../lib/auth';
 
+export const config = { api: { bodyParser: { sizeLimit: '3mb' } } };
+
 export default async function handler(req, res) {
   const session = await getSession(req);
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
@@ -16,12 +18,12 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { name, selling_price, cost_price, stock = 0 } = req.body;
+    const { name, selling_price, cost_price, stock = 0, photo = null } = req.body;
     if (!name || !selling_price) return res.status(400).json({ error: 'Name and selling price required' });
     const cost = session.role === 'owner' ? (parseFloat(cost_price) || 0) : 0;
     const { lastId } = await db.run(
-      'INSERT INTO products (name,selling_price,cost_price,stock) VALUES (?,?,?,?)',
-      [name, parseFloat(selling_price), cost, parseInt(stock) || 0]
+      'INSERT INTO products (name,selling_price,cost_price,stock,photo) VALUES (?,?,?,?,?)',
+      [name, parseFloat(selling_price), cost, parseInt(stock) || 0, photo || null]
     );
     return res.json({ id: lastId });
   }

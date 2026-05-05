@@ -15,6 +15,7 @@ export default async function handler(req, res) {
     if (selling_price  !== undefined) { fields.push('selling_price=?'); vals.push(Number(selling_price)); }
     if (cost_price     !== undefined) { fields.push('cost_price=?');    vals.push(Number(cost_price)); }
     if (stock          !== undefined) { fields.push('stock=?');         vals.push(Number(stock)); }
+    if (req.body.photo !== undefined) { fields.push('photo=?');         vals.push(req.body.photo || null); }
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(id);
     await db.run(`UPDATE products SET ${fields.join(',')} WHERE id=?`, vals);
