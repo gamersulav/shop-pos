@@ -1502,8 +1502,49 @@ function StaffPaymentBalanceTab() {
         <span style={{ fontWeight: 800, fontSize: 22, color: 'var(--cyan)' }}>Rs {totalBalance.toLocaleString()}</span>
       </div>
 
-      {/* Transactions per method */}
-      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>TRANSACTIONS</div>
+      {/* All transactions flat list */}
+      {(() => {
+        const all = CASH_METHODS.flatMap(m =>
+          (data.methods[m]?.transactions || [])
+            .filter(t => t.kind === 'sale' || t.kind === 'repair')
+            .map(t => ({ ...t, method: m }))
+        ).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+        return (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>
+              TODAY'S SALES & REPAIRS ({all.length})
+            </div>
+            {all.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted)', fontSize: 13, border: '1px solid var(--border)', borderRadius: 12 }}>
+                No sales or repairs recorded today
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                {all.map((t, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{kindIcon[t.kind]} {t.description}</div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: `${CASH_COLORS[t.method]}22`, color: CASH_COLORS[t.method] }}>
+                          {t.method === 'Bank Transfer' ? 'Bank' : t.method}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDateTime(t.time)}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--green)', flexShrink: 0 }}>
+                      +Rs {Number(t.amount).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {/* Expenses & outflows per method */}
+      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>OUTFLOWS</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, overflowX: 'auto' }}>
         {CASH_METHODS.map(m => (
           <button key={m} onClick={() => setActiveMethod(m)}
@@ -1512,31 +1553,25 @@ function StaffPaymentBalanceTab() {
           </button>
         ))}
       </div>
-
-      {txns.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '24px', color: 'var(--muted)', fontSize: 13, border: '1px solid var(--border)', borderRadius: 12 }}>
-          No transactions for {activeMethod} today
+      {txns.filter(t => t.kind === 'expense' || t.kind === 'supplier').length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px', color: 'var(--muted)', fontSize: 13, border: '1px solid var(--border)', borderRadius: 12 }}>
+          No outflows for {activeMethod} today
         </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {txns.map((t, i) => {
-          const isPos = t.amount >= 0;
-          const color = isPos ? 'var(--green)' : 'var(--red)';
-          const icon  = kindIcon[t.kind] || '•';
-          return (
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {txns.filter(t => t.kind === 'expense' || t.kind === 'supplier').map((t, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border)' }}>
               <div style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{icon} {t.description}</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{kindIcon[t.kind]} {t.description}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{fmtDateTime(t.time)}</div>
               </div>
-              <div style={{ fontWeight: 700, fontSize: 14, color, flexShrink: 0 }}>
-                {isPos ? '+' : ''}Rs {Math.abs(t.amount).toLocaleString()}
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--red)', flexShrink: 0 }}>
+                Rs {Math.abs(t.amount).toLocaleString()}
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
