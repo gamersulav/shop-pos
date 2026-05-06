@@ -1492,7 +1492,7 @@ function CashTab() {
                   </thead>
                   <tbody>
                     {data.history.map(row => {
-                      const salesIn  = Number(row.product_sales) + Number(row.repair_sales);
+                      const salesIn  = Number(row.sales) + Number(row.repair_sales);
                       const totalOut = Number(row.expenses) + Number(row.supplier_payments);
                       const net      = salesIn - totalOut;
                       const isSelected = row.date === date;

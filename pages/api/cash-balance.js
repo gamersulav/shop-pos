@@ -3,18 +3,73 @@ import { getSession } from '../../lib/auth';
 
 const METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
 
+function prevDateStr(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+async function computeClosingForDate(db, date) {
+  const [openRows, saleRows, repairRows, expRow, suppRow] = await Promise.all([
+    db.query(`SELECT payment_method, amount, COALESCE(adjustment,0) as adjustment FROM cash_opening WHERE date=?`, [date]),
+    db.query(`
+      SELECT s.payment_method, COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as total
+      FROM sales s JOIN sale_items si ON si.sale_id=s.id
+      WHERE s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
+      GROUP BY s.payment_method
+    `, [date]),
+    db.query(`
+      SELECT payment_method, COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as total
+      FROM repairs WHERE status IN ('Done','Delivered') AND payment_method!='Credit'
+        AND date(created_at,'+5 hours','+45 minutes')=?
+      GROUP BY payment_method
+    `, [date]),
+    db.queryOne(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=?`, [date]),
+    db.queryOne(`SELECT COALESCE(SUM(quantity*unit_cost),0) as total FROM shop_tabs WHERE direction='in' AND settled=1 AND date(settled_at,'+5 hours','+45 minutes')=?`, [date]),
+  ]);
+
+  const open = {}, adj = {}, sales = {}, repairs = {};
+  METHODS.forEach(m => { open[m] = 0; adj[m] = 0; sales[m] = 0; repairs[m] = 0; });
+  openRows.forEach(r => { open[r.payment_method] = Number(r.amount); adj[r.payment_method] = Number(r.adjustment) || 0; });
+  saleRows.forEach(r => { if (METHODS.includes(r.payment_method)) sales[r.payment_method] = Number(r.total); });
+  repairRows.forEach(r => { if (METHODS.includes(r.payment_method)) repairs[r.payment_method] = Number(r.total); });
+
+  const expenses = Number(expRow?.total || 0);
+  const supplier = Number(suppRow?.total || 0);
+
+  const closing = {};
+  METHODS.forEach(m => {
+    const out = m === 'Cash' ? expenses + supplier : 0;
+    closing[m] = open[m] + sales[m] + repairs[m] - out + adj[m];
+  });
+  return closing;
+}
+
 export default async function handler(req, res) {
   const session = await getSession(req);
-  if (!session || session.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = await getDb();
 
   if (req.method === 'POST') {
+    if (session.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const { date, payment_method, amount } = req.body;
     if (!date || !payment_method) return res.status(400).json({ error: 'date and payment_method required' });
     await db.run(
-      `INSERT OR REPLACE INTO cash_opening (date, payment_method, amount) VALUES (?,?,?)`,
+      `INSERT INTO cash_opening (date,payment_method,amount,adjustment) VALUES (?,?,?,0)
+       ON CONFLICT(date,payment_method) DO UPDATE SET amount=excluded.amount`,
       [date, payment_method, Math.abs(Number(amount)) || 0]
+    );
+    return res.json({ ok: true });
+  }
+
+  if (req.method === 'PUT') {
+    const { date, payment_method, adjustment } = req.body;
+    if (!date || !payment_method) return res.status(400).json({ error: 'date and payment_method required' });
+    await db.run(
+      `INSERT INTO cash_opening (date,payment_method,amount,adjustment) VALUES (?,?,0,?)
+       ON CONFLICT(date,payment_method) DO UPDATE SET adjustment=excluded.adjustment`,
+      [date, payment_method, Number(adjustment) || 0]
     );
     return res.json({ ok: true });
   }
@@ -24,92 +79,103 @@ export default async function handler(req, res) {
   const { d: todayNPT } = await db.queryOne(`SELECT date('now','+5 hours','+45 minutes') as d`);
   const targetDate = req.query.date || todayNPT;
 
-  // Opening balances for target date
+  // Opening: explicit from DB or auto-carry-forward from previous day's closing
   const openingRows = await db.query(
-    `SELECT payment_method, amount FROM cash_opening WHERE date=?`, [targetDate]
+    `SELECT payment_method, amount, COALESCE(adjustment,0) as adjustment FROM cash_opening WHERE date=?`, [targetDate]
   );
-  const opening = {};
-  METHODS.forEach(m => { opening[m] = 0; });
-  openingRows.forEach(r => { opening[r.payment_method] = Number(r.amount); });
+  const opening = {}, hasExplicit = {}, adjustment = {};
+  METHODS.forEach(m => { opening[m] = 0; hasExplicit[m] = false; adjustment[m] = 0; });
+  openingRows.forEach(r => {
+    opening[r.payment_method] = Number(r.amount);
+    hasExplicit[r.payment_method] = true;
+    adjustment[r.payment_method] = Number(r.adjustment) || 0;
+  });
 
-  // Product sales by payment method (excludes phone sales where product_id IS NULL, excludes Credit)
-  const productSales = await db.query(`
-    SELECT s.payment_method, COALESCE(SUM(si.quantity * si.unit_price), 0) as total
-    FROM sales s JOIN sale_items si ON si.sale_id = s.id
-    WHERE si.product_id IS NOT NULL
-      AND s.payment_method != 'Credit'
-      AND date(s.created_at, '+5 hours', '+45 minutes') = ?
-    GROUP BY s.payment_method
-  `, [targetDate]);
+  const needsCarry = METHODS.filter(m => !hasExplicit[m]);
+  if (needsCarry.length > 0) {
+    const prevClosing = await computeClosingForDate(db, prevDateStr(targetDate));
+    needsCarry.forEach(m => { opening[m] = prevClosing[m] || 0; });
+  }
 
-  // Repair collections by payment method (Done/Delivered only, excludes Credit)
-  const repairSales = await db.query(`
-    SELECT payment_method, COALESCE(SUM(customer_price), 0) as total
-    FROM repairs
-    WHERE status IN ('Done','Delivered')
-      AND payment_method != 'Credit'
-      AND date(created_at, '+5 hours', '+45 minutes') = ?
-    GROUP BY payment_method
-  `, [targetDate]);
+  // Individual transactions
+  const [saleRows, repairRows, expenseRows, supplierRows] = await Promise.all([
+    db.query(`
+      SELECT s.id, s.created_at, s.payment_method,
+             GROUP_CONCAT(si.product_name || ' ×' || si.quantity) as items,
+             SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)) as amount
+      FROM sales s JOIN sale_items si ON si.sale_id=s.id
+      WHERE s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
+      GROUP BY s.id
+    `, [targetDate]),
+    db.query(`
+      SELECT id, customer_name, issue, payment_method, created_at,
+             customer_price - COALESCE(repair_discount,0) as amount
+      FROM repairs WHERE status IN ('Done','Delivered') AND payment_method!='Credit'
+        AND date(created_at,'+5 hours','+45 minutes')=?
+    `, [targetDate]),
+    db.query(`SELECT description, amount, created_at FROM expenses WHERE expense_date=?`, [targetDate]),
+    db.query(`
+      SELECT shop_name, quantity*unit_cost as amount, settled_at
+      FROM shop_tabs WHERE direction='in' AND settled=1
+        AND date(settled_at,'+5 hours','+45 minutes')=?
+    `, [targetDate]),
+  ]);
 
-  // Expenses: cash outflow
-  const expensesRow = await db.queryOne(
-    `SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE expense_date = ?`, [targetDate]
-  );
-
-  // Supplier payments: shop tab debts settled today (direction='in' = we owe them → we paid cash)
-  const supplierRow = await db.queryOne(`
-    SELECT COALESCE(SUM(quantity * unit_cost), 0) as total
-    FROM shop_tabs
-    WHERE direction = 'in' AND settled = 1
-      AND date(settled_at, '+5 hours', '+45 minutes') = ?
-  `, [targetDate]);
-
-  const expensesTotal       = Number(expensesRow?.total || 0);
-  const supplierPayments    = Number(supplierRow?.total || 0);
-
-  // Build per-method breakdown
   const methods = {};
   METHODS.forEach(m => {
-    methods[m] = { opening: opening[m], productSales: 0, repairSales: 0, inflows: 0, outflows: 0, balance: 0 };
+    methods[m] = { opening: opening[m], adjustment: adjustment[m], inflows: 0, outflows: 0, balance: 0, transactions: [] };
   });
 
-  productSales.forEach(r => {
+  saleRows.forEach(r => {
     const m = METHODS.includes(r.payment_method) ? r.payment_method : 'Cash';
-    methods[m].productSales += Number(r.total);
+    const amt = Number(r.amount);
+    methods[m].inflows += amt;
+    methods[m].transactions.push({ kind: 'sale', description: r.items, amount: amt, time: r.created_at });
   });
-  repairSales.forEach(r => {
+
+  repairRows.forEach(r => {
     const m = METHODS.includes(r.payment_method) ? r.payment_method : 'Cash';
-    methods[m].repairSales += Number(r.total);
+    const amt = Number(r.amount);
+    methods[m].inflows += amt;
+    methods[m].transactions.push({ kind: 'repair', description: r.customer_name, amount: amt, time: r.created_at });
   });
+
+  const expensesTotal = expenseRows.reduce((s, r) => s + Number(r.amount), 0);
+  expenseRows.forEach(r => {
+    methods['Cash'].transactions.push({ kind: 'expense', description: r.description, amount: -Number(r.amount), time: r.created_at });
+  });
+  methods['Cash'].outflows += expensesTotal;
+
+  const supplierTotal = supplierRows.reduce((s, r) => s + Number(r.amount), 0);
+  supplierRows.forEach(r => {
+    methods['Cash'].transactions.push({ kind: 'supplier', description: `Paid ${r.shop_name}`, amount: -Number(r.amount), time: r.settled_at });
+  });
+  methods['Cash'].outflows += supplierTotal;
 
   METHODS.forEach(m => {
-    const d = methods[m];
-    d.inflows  = d.productSales + d.repairSales;
-    d.outflows = m === 'Cash' ? expensesTotal + supplierPayments : 0;
-    d.balance  = d.opening + d.inflows - d.outflows;
+    methods[m].transactions.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    methods[m].balance = methods[m].opening + methods[m].inflows - methods[m].outflows + methods[m].adjustment;
   });
 
-  // History: last 30 days — four separate aggregates, merged in JS
-  const [histProd, histRepair, histExp, histSupplier] = await Promise.all([
+  // History: last 30 days
+  const [histSale, histRepair, histExp, histSupplier] = await Promise.all([
     db.query(`
       SELECT date(s.created_at,'+5 hours','+45 minutes') as date,
-             COALESCE(SUM(si.quantity*si.unit_price),0) as total
+             COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as total
       FROM sales s JOIN sale_items si ON si.sale_id=s.id
-      WHERE si.product_id IS NOT NULL AND s.payment_method != 'Credit'
+      WHERE s.payment_method!='Credit'
         AND date(s.created_at,'+5 hours','+45 minutes') >= date('now','-30 days','+5 hours','+45 minutes')
       GROUP BY date(s.created_at,'+5 hours','+45 minutes')
     `),
     db.query(`
       SELECT date(created_at,'+5 hours','+45 minutes') as date,
-             COALESCE(SUM(customer_price),0) as total
-      FROM repairs WHERE status IN ('Done','Delivered') AND payment_method != 'Credit'
+             COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as total
+      FROM repairs WHERE status IN ('Done','Delivered') AND payment_method!='Credit'
         AND date(created_at,'+5 hours','+45 minutes') >= date('now','-30 days','+5 hours','+45 minutes')
       GROUP BY date(created_at,'+5 hours','+45 minutes')
     `),
     db.query(`
-      SELECT expense_date as date, COALESCE(SUM(amount),0) as total
-      FROM expenses
+      SELECT expense_date as date, COALESCE(SUM(amount),0) as total FROM expenses
       WHERE expense_date >= date('now','-30 days','+5 hours','+45 minutes')
       GROUP BY expense_date
     `),
@@ -126,15 +192,15 @@ export default async function handler(req, res) {
   function addHist(rows, key) {
     rows.forEach(r => {
       if (!r.date) return;
-      if (!histMap[r.date]) histMap[r.date] = { date: r.date, product_sales: 0, repair_sales: 0, expenses: 0, supplier_payments: 0 };
+      if (!histMap[r.date]) histMap[r.date] = { date: r.date, sales: 0, repair_sales: 0, expenses: 0, supplier_payments: 0 };
       histMap[r.date][key] += Number(r.total);
     });
   }
-  addHist(histProd,     'product_sales');
-  addHist(histRepair,   'repair_sales');
-  addHist(histExp,      'expenses');
+  addHist(histSale, 'sales');
+  addHist(histRepair, 'repair_sales');
+  addHist(histExp, 'expenses');
   addHist(histSupplier, 'supplier_payments');
   const history = Object.values(histMap).sort((a, b) => b.date.localeCompare(a.date));
 
-  res.json({ date: targetDate, methods, expenses: expensesTotal, supplierPayments, history });
+  res.json({ date: targetDate, methods, expenses: expensesTotal, supplierPayments: supplierTotal, history });
 }
