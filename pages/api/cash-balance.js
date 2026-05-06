@@ -15,7 +15,7 @@ async function computeClosingForDate(db, date) {
     db.query(`
       SELECT s.payment_method, COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as total
       FROM sales s JOIN sale_items si ON si.sale_id=s.id
-      WHERE s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
+      WHERE si.product_id IS NOT NULL AND s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
       GROUP BY s.payment_method
     `, [date]),
     db.query(`
@@ -104,7 +104,7 @@ export default async function handler(req, res) {
              GROUP_CONCAT(si.product_name || ' ×' || si.quantity) as items,
              SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)) as amount
       FROM sales s JOIN sale_items si ON si.sale_id=s.id
-      WHERE s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
+      WHERE si.product_id IS NOT NULL AND s.payment_method!='Credit' AND date(s.created_at,'+5 hours','+45 minutes')=?
       GROUP BY s.id
     `, [targetDate]),
     db.query(`
@@ -163,7 +163,7 @@ export default async function handler(req, res) {
       SELECT date(s.created_at,'+5 hours','+45 minutes') as date,
              COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as total
       FROM sales s JOIN sale_items si ON si.sale_id=s.id
-      WHERE s.payment_method!='Credit'
+      WHERE si.product_id IS NOT NULL AND s.payment_method!='Credit'
         AND date(s.created_at,'+5 hours','+45 minutes') >= date('now','-30 days','+5 hours','+45 minutes')
       GROUP BY date(s.created_at,'+5 hours','+45 minutes')
     `),
