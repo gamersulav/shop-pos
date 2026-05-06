@@ -887,8 +887,7 @@ function RepairsTab() {
           <div key={r.id} className="card">
             {editing?.id === r.id ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontWeight: 700, color: 'var(--cyan)' }}>{r.customer_name} — {r.phone_model}</div>
-                {[['Customer Price (Rs)', 'customer_price', 'number'], ['Your Cost (Rs)', 'cost_price', 'number'], ['Notes', 'notes', 'text']].map(([lbl, key, type]) => (
+                {[['Customer Name', 'customer_name', 'text'], ['Customer Phone', 'customer_phone', 'text'], ['Device Model', 'phone_model', 'text'], ['Issue', 'issue', 'text'], ['Customer Price (Rs)', 'customer_price', 'number'], ['Discount (Rs)', 'repair_discount', 'number'], ['Your Cost (Rs)', 'cost_price', 'number'], ['Notes', 'notes', 'text']].map(([lbl, key, type]) => (
                   <div key={key}>
                     <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
                     <input type={type} value={editing[key] ?? ''} onChange={e => setEditing(ed => ({ ...ed, [key]: e.target.value }))} />
@@ -936,7 +935,7 @@ function RepairsTab() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(r.created_at)}</span>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
-                    onClick={() => setEditing({ id: r.id, customer_price: r.customer_price, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
+                    onClick={() => setEditing({ id: r.id, customer_name: r.customer_name || '', customer_phone: r.customer_phone || '', phone_model: r.phone_model || '', issue: r.issue || '', customer_price: r.customer_price, repair_discount: r.repair_discount || 0, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
                     Edit
                   </button>
                 </div>
