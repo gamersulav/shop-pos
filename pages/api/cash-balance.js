@@ -24,22 +24,22 @@ async function computeClosingForDate(db, date) {
         AND date(created_at,'+5 hours','+45 minutes')=?
       GROUP BY payment_method
     `, [date]),
-    db.queryOne(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=?`, [date]),
+    db.query(`SELECT COALESCE(payment_method,'Cash') as payment_method, COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=? GROUP BY payment_method`, [date]),
     db.queryOne(`SELECT COALESCE(SUM(quantity*unit_cost),0) as total FROM shop_tabs WHERE direction='in' AND settled=1 AND date(settled_at,'+5 hours','+45 minutes')=?`, [date]),
   ]);
 
-  const open = {}, adj = {}, sales = {}, repairs = {};
-  METHODS.forEach(m => { open[m] = 0; adj[m] = 0; sales[m] = 0; repairs[m] = 0; });
+  const open = {}, adj = {}, sales = {}, repairs = {}, expByMethod = {};
+  METHODS.forEach(m => { open[m] = 0; adj[m] = 0; sales[m] = 0; repairs[m] = 0; expByMethod[m] = 0; });
   openRows.forEach(r => { open[r.payment_method] = Number(r.amount); adj[r.payment_method] = Number(r.adjustment) || 0; });
   saleRows.forEach(r => { if (METHODS.includes(r.payment_method)) sales[r.payment_method] = Number(r.total); });
   repairRows.forEach(r => { if (METHODS.includes(r.payment_method)) repairs[r.payment_method] = Number(r.total); });
+  expRow.forEach(r => { if (METHODS.includes(r.payment_method)) expByMethod[r.payment_method] = Number(r.total); });
 
-  const expenses = Number(expRow?.total || 0);
   const supplier = Number(suppRow?.total || 0);
 
   const closing = {};
   METHODS.forEach(m => {
-    const out = m === 'Cash' ? expenses + supplier : 0;
+    const out = expByMethod[m] + (m === 'Cash' ? supplier : 0);
     closing[m] = open[m] + sales[m] + repairs[m] - out + adj[m];
   });
   return closing;
@@ -113,7 +113,7 @@ export default async function handler(req, res) {
       FROM repairs WHERE status IN ('Done','Delivered') AND payment_method!='Credit'
         AND date(created_at,'+5 hours','+45 minutes')=?
     `, [targetDate]),
-    db.query(`SELECT description, amount, created_at FROM expenses WHERE expense_date=?`, [targetDate]),
+    db.query(`SELECT description, amount, created_at, COALESCE(payment_method,'Cash') as payment_method FROM expenses WHERE expense_date=?`, [targetDate]),
     db.query(`
       SELECT shop_name, quantity*unit_cost as amount, settled_at
       FROM shop_tabs WHERE direction='in' AND settled=1
@@ -142,9 +142,10 @@ export default async function handler(req, res) {
 
   const expensesTotal = expenseRows.reduce((s, r) => s + Number(r.amount), 0);
   expenseRows.forEach(r => {
-    methods['Cash'].transactions.push({ kind: 'expense', description: r.description, amount: -Number(r.amount), time: r.created_at });
+    const m = METHODS.includes(r.payment_method) ? r.payment_method : 'Cash';
+    methods[m].transactions.push({ kind: 'expense', description: r.description, amount: -Number(r.amount), time: r.created_at });
+    methods[m].outflows += Number(r.amount);
   });
-  methods['Cash'].outflows += expensesTotal;
 
   const supplierTotal = supplierRows.reduce((s, r) => s + Number(r.amount), 0);
   supplierRows.forEach(r => {

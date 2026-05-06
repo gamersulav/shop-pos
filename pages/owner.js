@@ -1535,7 +1535,7 @@ function OwnerExpensesTab() {
   const [expenses, setExpenses] = useState([]);
   const [period, setPeriod]     = useState('month'); // 'today' | 'month' | 'all'
   const [type, setType]         = useState('all');   // 'all' | 'staff' | 'owner'
-  const [form, setForm]         = useState({ description: '', amount: '' });
+  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash' });
   const [saving, setSaving]     = useState(false);
   const [showAdd, setShowAdd]   = useState(false);
   const [delConfirm, setDelConfirm] = useState(null);
@@ -1559,10 +1559,10 @@ function OwnerExpensesTab() {
     await fetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: form.description.trim(), amount: Number(form.amount) }),
+      body: JSON.stringify({ description: form.description.trim(), amount: Number(form.amount), payment_method: form.payment_method }),
     });
     setSaving(false);
-    setForm({ description: '', amount: '' });
+    setForm({ description: '', amount: '', payment_method: 'Cash' });
     setShowAdd(false);
     load();
   }
@@ -1601,6 +1601,23 @@ function OwnerExpensesTab() {
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>AMOUNT (RS)</label>
             <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0"
               onKeyDown={e => e.key === 'Enter' && addExpense()} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>PAID FROM</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {CASH_METHODS.map(m => {
+                const color = CASH_COLORS[m];
+                return (
+                  <button key={m} onClick={() => setForm(f => ({ ...f, payment_method: m }))}
+                    style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                      border: `2px solid ${form.payment_method === m ? color : 'var(--border)'}`,
+                      background: form.payment_method === m ? `${color}26` : 'transparent',
+                      color: form.payment_method === m ? color : 'var(--muted)' }}>
+                    {m === 'Bank Transfer' ? 'Bank' : m}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <button className="btn btn-green" onClick={addExpense}
             disabled={saving || !form.description.trim() || !form.amount}>
@@ -1660,12 +1677,17 @@ function OwnerExpensesTab() {
           <div key={e.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{e.description}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
                   background: e.entered_by === 'owner' ? 'rgba(176,96,255,0.12)' : 'rgba(0,212,255,0.12)',
                   color: e.entered_by === 'owner' ? 'var(--purple)' : 'var(--cyan)' }}>
                   {e.entered_by?.toUpperCase()}
                 </span>
+                {(() => { const pm = e.payment_method || 'Cash'; const c = CASH_COLORS[pm] || 'var(--muted)'; return (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: `${c}22`, color: c }}>
+                    {pm === 'Bank Transfer' ? 'Bank' : pm}
+                  </span>
+                ); })()}
                 {e.expense_date}
               </div>
             </div>

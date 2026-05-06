@@ -1579,7 +1579,7 @@ function StaffPaymentBalanceTab() {
 // ─── STAFF EXPENSES TAB ───────────────────────────────────────────────────────
 function StaffExpensesTab() {
   const [expenses, setExpenses] = useState([]);
-  const [form, setForm]         = useState({ description: '', amount: '' });
+  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash' });
   const [saving, setSaving]     = useState(false);
   const [loading, setLoading]   = useState(true);
   const [deleting, setDeleting] = useState(null);
@@ -1598,9 +1598,9 @@ function StaffExpensesTab() {
     if (!form.description.trim()) { alert('Enter a description'); return; }
     if (!form.amount || Number(form.amount) <= 0) { alert('Enter a valid amount'); return; }
     setSaving(true);
-    const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount) }) });
+    const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount), payment_method: form.payment_method }) });
     setSaving(false);
-    if (r.ok) { setForm({ description: '', amount: '' }); load(); }
+    if (r.ok) { setForm({ description: '', amount: '', payment_method: 'Cash' }); load(); }
     else alert('Error saving. Try again.');
   }
 
@@ -1632,6 +1632,14 @@ function StaffExpensesTab() {
         <div>
           <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>AMOUNT (Rs)</label>
           <input type="number" min="0" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} style={{ textAlign: 'right', fontWeight: 700, fontSize: 20 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PAID FROM</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {CASH_METHODS.map(m => (
+              <PayButton key={m} method={m} selected={form.payment_method === m} onClick={() => setForm(f => ({ ...f, payment_method: m }))} />
+            ))}
+          </div>
         </div>
         <button className="btn btn-cyan" onClick={save} disabled={saving}>{saving ? 'Saving…' : '💸 Add Expense'}</button>
       </div>
@@ -1674,11 +1682,18 @@ function StaffExpensesTab() {
 
 function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate }) {
   const [confirm, setConfirm] = useState(false);
+  const pm = e.payment_method || 'Cash';
+  const pmColor = CASH_COLORS[pm] || 'var(--muted)';
   return (
     <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{e.description}</div>
-        {showDate && fmtDate && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{fmtDate(e.expense_date)}</div>}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: `${pmColor}22`, color: pmColor }}>
+            {pm === 'Bank Transfer' ? 'Bank' : pm}
+          </span>
+          {showDate && fmtDate && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(e.expense_date)}</span>}
+        </div>
       </div>
       <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', flexShrink: 0 }}>Rs {Number(e.amount).toLocaleString()}</div>
       {!confirm ? (
