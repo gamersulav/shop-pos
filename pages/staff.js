@@ -409,11 +409,10 @@ function SaleTab({ products, phones }) {
         <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: payError ? 'var(--red)' : 'var(--muted)' }}>
           {payError ? '⚠ SELECT PAYMENT METHOD (required)' : 'PAYMENT METHOD'}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {PAYMENTS.map(p => (
-            <PayButton key={p} method={p} selected={payment === p} onClick={() => { setPayment(p); setPayError(false); }} />
-          ))}
-        </div>
+        <select value={payment || ''} onChange={e => { setPayment(e.target.value); setPayError(false); }} style={{ fontWeight: 700 }}>
+          <option value="" disabled>Select payment method…</option>
+          {PAYMENTS.map(p => <option key={p}>{p}</option>)}
+        </select>
       </div>
 
       {payment === 'Credit' && (
@@ -830,20 +829,10 @@ function RepairTab() {
                   </div>
                   <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PAYMENT</div>
-                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                      {PAYMENTS.map(p => {
-                        const cur = r.payment_method || 'Cash';
-                        return (
-                          <button key={p} onClick={() => updatePayment(r.id, p)} disabled={updatingId === r.id || cur === p}
-                            style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 8, border: '1.5px solid var(--border)',
-                              background: cur === p ? (p === 'Credit' ? 'rgba(255,176,32,0.15)' : 'rgba(0,212,255,0.12)') : 'transparent',
-                              color: cur === p ? (p === 'Credit' ? 'var(--amber)' : 'var(--cyan)') : 'var(--muted)',
-                              cursor: cur === p ? 'default' : 'pointer', opacity: updatingId === r.id ? 0.5 : 1 }}>
-                            {p}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <select value={r.payment_method || 'Cash'} disabled={updatingId === r.id}
+                      onChange={e => updatePayment(r.id, e.target.value)} style={{ fontWeight: 700, opacity: updatingId === r.id ? 0.5 : 1 }}>
+                      {PAYMENTS.map(p => <option key={p}>{p}</option>)}
+                    </select>
                   </div>
                 </div>
               );
@@ -891,11 +880,9 @@ function RepairTab() {
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>PAYMENT METHOD</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {PAYMENTS.map(p => (
-                <PayButton key={p} method={p} selected={form.payment === p} onClick={() => set('payment', p)} />
-              ))}
-            </div>
+            <select value={form.payment} onChange={e => set('payment', e.target.value)} style={{ fontWeight: 700 }}>
+              {PAYMENTS.map(p => <option key={p}>{p}</option>)}
+            </select>
           </div>
           <button className="btn btn-cyan" onClick={saveRepair} disabled={saving}>
             {saving ? 'Saving…' : '🔧 Save Repair'}
@@ -1635,11 +1622,9 @@ function StaffExpensesTab() {
         </div>
         <div>
           <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PAID FROM</label>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {CASH_METHODS.map(m => (
-              <PayButton key={m} method={m} selected={form.payment_method === m} onClick={() => setForm(f => ({ ...f, payment_method: m }))} />
-            ))}
-          </div>
+          <select value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} style={{ fontWeight: 700 }}>
+            {CASH_METHODS.map(m => <option key={m}>{m}</option>)}
+          </select>
         </div>
         <button className="btn btn-cyan" onClick={save} disabled={saving}>{saving ? 'Saving…' : '💸 Add Expense'}</button>
       </div>

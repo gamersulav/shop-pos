@@ -1604,20 +1604,9 @@ function OwnerExpensesTab() {
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>PAID FROM</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {CASH_METHODS.map(m => {
-                const color = CASH_COLORS[m];
-                return (
-                  <button key={m} onClick={() => setForm(f => ({ ...f, payment_method: m }))}
-                    style={{ flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-                      border: `2px solid ${form.payment_method === m ? color : 'var(--border)'}`,
-                      background: form.payment_method === m ? `${color}26` : 'transparent',
-                      color: form.payment_method === m ? color : 'var(--muted)' }}>
-                    {m === 'Bank Transfer' ? 'Bank' : m}
-                  </button>
-                );
-              })}
-            </div>
+            <select value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} style={{ fontWeight: 700 }}>
+              {CASH_METHODS.map(m => <option key={m}>{m}</option>)}
+            </select>
           </div>
           <button className="btn btn-green" onClick={addExpense}
             disabled={saving || !form.description.trim() || !form.amount}>
