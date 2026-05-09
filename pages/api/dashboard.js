@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
   const todayProfit = await db.queryOne(`
-    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price)),0) as profit
+    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH}`);
 
   const monthlyProfit = await db.queryOne(`
-    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price)),0) as profit
+    SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
 
@@ -58,8 +58,8 @@ export default async function handler(req, res) {
   const topProducts = await db.query(`
     SELECT si.product_name as name,
            SUM(si.quantity) as qty,
-           SUM(si.quantity*si.unit_price) as revenue,
-           SUM(si.quantity*(si.unit_price-si.cost_price)) as profit
+           SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)) as revenue,
+           SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)) as profit
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}
     GROUP BY si.product_name ORDER BY qty DESC LIMIT 6`);
