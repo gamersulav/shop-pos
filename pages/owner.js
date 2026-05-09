@@ -584,9 +584,12 @@ function OwnerPhonesTab() {
                     <span style={{ color: 'var(--amber)' }}>⚠ Not priced yet</span>
                   )}
                 </div>
-                {p.status === 'sold' && p.sold_at && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
-                    Sold {fmtDate(p.sold_at)}
+                {p.status === 'sold' && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 12 }}>
+                    {p.sold_at && <span>Sold {fmtDate(p.sold_at)}</span>}
+                    {Number(p.sale_discount) > 0 && (
+                      <span style={{ color: 'var(--amber)' }}>Discount given: Rs {Number(p.sale_discount).toLocaleString()}</span>
+                    )}
                   </div>
                 )}
               </div>
