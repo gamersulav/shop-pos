@@ -443,6 +443,7 @@ function OwnerPhonesTab() {
         selling_price: parseFloat(editing.selling_price) || 0,
         condition:     editing.condition,
         notes:         editing.notes,
+        discount:      parseFloat(editing.sale_discount) || 0,
       }),
     });
     setSaving(false);
@@ -521,6 +522,13 @@ function OwnerPhonesTab() {
                     <input type={type} value={editing[key]} onChange={e => setEditing(ed => ({ ...ed, [key]: e.target.value }))} />
                   </div>
                 ))}
+                {p.status === 'sold' && (
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>DISCOUNT GIVEN (Rs)</label>
+                    <input type="number" min="0" value={editing.sale_discount ?? 0}
+                      onChange={e => setEditing(ed => ({ ...ed, sale_discount: e.target.value }))} />
+                  </div>
+                )}
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CONDITION</label>
                   <select value={editing.condition} onChange={e => setEditing(ed => ({ ...ed, condition: e.target.value }))}>
@@ -562,7 +570,7 @@ function OwnerPhonesTab() {
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
-                      onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '' })}>
+                      onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
                       {Number(p.selling_price) ? 'Edit' : '+ Price'}
                     </button>
                     <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
