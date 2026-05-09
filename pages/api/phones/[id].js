@@ -18,8 +18,25 @@ export default async function handler(req, res) {
     if (condition     !== undefined) { fields.push('condition=?');     vals.push(condition); }
     if (notes         !== undefined) { fields.push('notes=?');         vals.push(notes); }
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
+
+    const phone = await db.queryOne('SELECT sold_in_sale FROM used_phones WHERE id=?', [id]);
     vals.push(id);
     await db.run(`UPDATE used_phones SET ${fields.join(',')} WHERE id=?`, vals);
+
+    // Sync sale_items and sales if this phone has been sold
+    if (phone?.sold_in_sale && (selling_price !== undefined || cost_price !== undefined)) {
+      const siFields = [], siVals = [];
+      if (selling_price !== undefined) { siFields.push('unit_price=?');  siVals.push(Number(selling_price)); }
+      if (cost_price    !== undefined) { siFields.push('cost_price=?');  siVals.push(Number(cost_price)); }
+      siVals.push(phone.sold_in_sale);
+      await db.run(`UPDATE sale_items SET ${siFields.join(',')} WHERE sale_id=? AND product_id IS NULL`, siVals);
+
+      if (selling_price !== undefined) {
+        const si = await db.queryOne('SELECT COALESCE(item_discount,0) as disc FROM sale_items WHERE sale_id=? AND product_id IS NULL', [phone.sold_in_sale]);
+        await db.run('UPDATE sales SET total_amount=? WHERE id=?', [Math.max(0, Number(selling_price) - Number(si?.disc || 0)), phone.sold_in_sale]);
+      }
+    }
+
     return res.json({ ok: true });
   }
 

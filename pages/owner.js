@@ -561,12 +561,10 @@ function OwnerPhonesTab() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    {p.status === 'available' && (
-                      <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
-                        onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '' })}>
-                        {Number(p.selling_price) ? 'Edit' : '+ Price'}
-                      </button>
-                    )}
+                    <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
+                      onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '' })}>
+                      {Number(p.selling_price) ? 'Edit' : '+ Price'}
+                    </button>
                     <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
                       onClick={() => setConfirmDelete({ id: p.id, model: p.model })}>
                       Del
