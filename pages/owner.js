@@ -578,7 +578,7 @@ function OwnerPhonesTab() {
                   {Number(p.selling_price) ? (
                     <>
                       <span>Sell: <strong style={{ color: 'var(--cyan)' }}>Rs {Number(p.selling_price).toFixed(0)}</strong></span>
-                      <span>Profit: <strong style={{ color: 'var(--green)' }}>Rs {(Number(p.selling_price) - Number(p.cost_price)).toFixed(0)}</strong></span>
+                      <span>Profit: <strong style={{ color: 'var(--green)' }}>Rs {(Number(p.selling_price) - Number(p.cost_price) - (p.status === 'sold' ? Number(p.sale_discount || 0) : 0)).toFixed(0)}</strong></span>
                     </>
                   ) : (
                     <span style={{ color: 'var(--amber)' }}>⚠ Not priced yet</span>

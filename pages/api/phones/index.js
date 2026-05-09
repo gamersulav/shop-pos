@@ -11,7 +11,12 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     if (session.role === 'owner') {
-      const phones = await db.query('SELECT * FROM used_phones ORDER BY created_at DESC');
+      const phones = await db.query(`
+        SELECT up.*, COALESCE(si.item_discount, 0) as sale_discount
+        FROM used_phones up
+        LEFT JOIN sale_items si ON si.sale_id = up.sold_in_sale AND si.product_id IS NULL
+        ORDER BY up.created_at DESC
+      `);
       return res.json(phones);
     }
     // Staff: see all phones but hide cost_price
