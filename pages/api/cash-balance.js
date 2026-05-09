@@ -9,7 +9,7 @@ function prevDateStr(dateStr) {
   return d.toISOString().split('T')[0];
 }
 
-async function computeClosingForDate(db, date) {
+async function computeClosingForDate(db, date, depth = 0) {
   const [openRows, saleRows, repairRows, expRow, suppRow] = await Promise.all([
     db.query(`SELECT payment_method, amount, COALESCE(adjustment,0) as adjustment FROM cash_opening WHERE date=?`, [date]),
     db.query(`
@@ -30,7 +30,20 @@ async function computeClosingForDate(db, date) {
 
   const open = {}, adj = {}, sales = {}, repairs = {}, expByMethod = {};
   METHODS.forEach(m => { open[m] = 0; adj[m] = 0; sales[m] = 0; repairs[m] = 0; expByMethod[m] = 0; });
-  openRows.forEach(r => { open[r.payment_method] = Number(r.amount); adj[r.payment_method] = Number(r.adjustment) || 0; });
+
+  const explicitMethods = new Set();
+  openRows.forEach(r => {
+    open[r.payment_method] = Number(r.amount);
+    adj[r.payment_method] = Number(r.adjustment) || 0;
+    explicitMethods.add(r.payment_method);
+  });
+
+  const needsCarry = METHODS.filter(m => !explicitMethods.has(m));
+  if (needsCarry.length > 0 && depth < 60) {
+    const prevClosing = await computeClosingForDate(db, prevDateStr(date), depth + 1);
+    needsCarry.forEach(m => { open[m] = prevClosing[m] || 0; });
+  }
+
   saleRows.forEach(r => { if (METHODS.includes(r.payment_method)) sales[r.payment_method] = Number(r.total); });
   repairRows.forEach(r => { if (METHODS.includes(r.payment_method)) repairs[r.payment_method] = Number(r.total); });
   expRow.forEach(r => { if (METHODS.includes(r.payment_method)) expByMethod[r.payment_method] = Number(r.total); });
