@@ -15,10 +15,14 @@ export default async function handler(req, res) {
 
   // ── Today ─────────────────────────────────────────────────────────────────
   const today = await db.queryOne(`
-    SELECT COALESCE(SUM(s.total_amount),0) as revenue,
-           COUNT(DISTINCT s.id)            as sales,
-           COALESCE(SUM(si.quantity),0)    as items
-    FROM sales s LEFT JOIN sale_items si ON si.sale_id=s.id
+    SELECT COALESCE(SUM(total_amount),0) as revenue,
+           COUNT(*)                      as sales
+    FROM sales
+    WHERE ${nptDate('created_at')} = ${NPT_TODAY}`);
+
+  const todayItems = await db.queryOne(`
+    SELECT COALESCE(SUM(si.quantity),0) as items
+    FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
   const todayProfit = await db.queryOne(`
@@ -85,9 +89,13 @@ export default async function handler(req, res) {
     SELECT
       COUNT(CASE WHEN status='available' THEN 1 END) as available,
       COUNT(CASE WHEN status='sold' AND ${nptMonth('sold_at')} = ${NPT_MONTH} THEN 1 END) as sold_month,
-      COALESCE(SUM(CASE WHEN status='sold' AND ${nptMonth('sold_at')} = ${NPT_MONTH} THEN selling_price-cost_price END),0) as phone_profit_month,
       COUNT(CASE WHEN status='available' AND selling_price=0 THEN 1 END) as needs_pricing
     FROM used_phones`);
+
+  const phoneProfit = await db.queryOne(`
+    SELECT COALESCE(SUM(si.unit_price - si.cost_price - COALESCE(si.item_discount,0)),0) as phone_profit_month
+    FROM sales s JOIN sale_items si ON si.sale_id=s.id
+    WHERE si.product_id IS NULL AND ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
 
   const todayRev    = Number(today?.revenue    || 0) - Number(todayReturns?.revenue  || 0);
   const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0);
@@ -104,7 +112,7 @@ export default async function handler(req, res) {
       expenses:  todayExpTotal,
       profit:    todayPro - todayExpTotal,
       sales:     Number(today?.sales || 0),
-      items:     Number(today?.items || 0),
+      items:     Number(todayItems?.items || 0),
     },
     monthly: {
       revenue:     rev,
@@ -121,7 +129,7 @@ export default async function handler(req, res) {
     phoneStats: {
       available:       Number(phoneStats?.available       || 0),
       soldThisMonth:   Number(phoneStats?.sold_month      || 0),
-      profitThisMonth: Number(phoneStats?.phone_profit_month || 0),
+      profitThisMonth: Number(phoneProfit?.phone_profit_month || 0),
       needsPricing:    Number(phoneStats?.needs_pricing   || 0),
     },
   });
