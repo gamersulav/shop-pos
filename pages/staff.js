@@ -440,11 +440,28 @@ function PhonesTab({ onPhoneSold }) {
   const [sortBy, setSortBy]   = useState('recents');
   const [search, setSearch]   = useState('');
   const [stockForm, setStockForm] = useState({ model: '', condition: 'Good', notes: '', photos: [] });
-  const [shareToast, setShareToast] = useState('');
+  const [shareToast, setShareToast]       = useState('');
+  const [shareMode, setShareMode]         = useState(false);
+  const [shareSelection, setShareSelection] = useState(new Set());
 
   useEffect(() => { loadPhones(); }, []);
 
   function loadPhones() { fetch('/api/phones').then(r => r.json()).then(setPhones); }
+
+  function toggleShareSelect(id) {
+    setShareSelection(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    if (shareSelection.size === filteredPhones.length) setShareSelection(new Set());
+    else setShareSelection(new Set(filteredPhones.map(p => p.id)));
+  }
+
+  function exitShareMode() { setShareMode(false); setShareSelection(new Set()); }
 
   const available     = phones.filter(p => p.status === 'available' && Number(p.selling_price) > 0);
   const awaitingPrice = phones.filter(p => p.status === 'available' && !Number(p.selling_price));
@@ -468,6 +485,19 @@ function PhonesTab({ onPhoneSold }) {
     try { await navigator.clipboard.writeText(txt); } catch {}
     setShareToast(p.id);
     setTimeout(() => setShareToast(''), 2200);
+  }
+
+  async function shareSelected() {
+    const selected = filteredPhones.filter(p => shareSelection.has(p.id));
+    if (!selected.length) return;
+    const lines = selected.map((p, i) =>
+      `${i + 1}. ${p.model}\n   Condition: ${p.condition} · Rs ${Number(p.selling_price).toLocaleString()}${p.notes ? '\n   ' + p.notes : ''}`
+    ).join('\n\n');
+    const txt = `📱 Available Used Phones\n\n${lines}`;
+    if (navigator.share) { try { await navigator.share({ text: txt }); exitShareMode(); return; } catch {} }
+    try { await navigator.clipboard.writeText(txt); } catch {}
+    setShareToast('multi');
+    setTimeout(() => { setShareToast(''); exitShareMode(); }, 2200);
   }
 
   async function addPhonePhoto(e) {
@@ -554,7 +584,14 @@ function PhonesTab({ onPhoneSold }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Used Phones</h2>
-        <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => setView('stockin')}>+ Stock In</button>
+        {shareMode ? (
+          <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '8px 14px' }} onClick={exitShareMode}>Cancel</button>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {available.length > 1 && <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '8px 14px' }} onClick={() => setShareMode(true)}>📤 Select</button>}
+            <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => setView('stockin')}>+ Stock In</button>
+          </div>
+        )}
       </div>
 
       {done === 'stocked' && <AlertBox color="green" text="Phone stocked in successfully!" />}
@@ -598,6 +635,23 @@ function PhonesTab({ onPhoneSold }) {
         </div>
       )}
 
+      {shareMode && filteredPhones.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, padding: '6px 12px', background: 'rgba(0,212,255,0.06)', borderRadius: 10, border: '1px solid rgba(0,212,255,0.2)' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{shareSelection.size} selected</span>
+          <button style={{ background: 'none', border: 'none', color: 'var(--cyan)', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0 }} onClick={selectAll}>
+            {shareSelection.size === filteredPhones.length ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+      )}
+
+      {shareMode && shareSelection.size > 0 && (
+        <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', zIndex: 999 }}>
+          <button className="btn btn-cyan" style={{ padding: '13px 32px', borderRadius: 28, fontSize: 15, fontWeight: 700, boxShadow: '0 4px 20px rgba(0,212,255,0.35)' }} onClick={shareSelected}>
+            📤 Share {shareSelection.size} phone{shareSelection.size > 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
+
       {shareToast && (
         <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', background: '#1e1e3a', border: '1.5px solid var(--cyan)', borderRadius: 10, padding: '10px 20px', fontSize: 13, color: 'var(--cyan)', fontWeight: 700, zIndex: 999, whiteSpace: 'nowrap' }}>
           ✓ Copied to clipboard!
@@ -606,8 +660,20 @@ function PhonesTab({ onPhoneSold }) {
 
       {filteredPhones.map(p => {
         const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
+        const isSelected = shareSelection.has(p.id);
         return (
-          <div key={p.id} className="card" style={{ marginBottom: 10 }}>
+          <div key={p.id} className="card"
+            style={{ marginBottom: 10, cursor: shareMode ? 'pointer' : undefined,
+              borderColor: shareMode && isSelected ? 'var(--cyan)' : undefined,
+              background: shareMode && isSelected ? 'rgba(0,212,255,0.05)' : undefined }}
+            onClick={shareMode ? () => toggleShareSelect(p.id) : undefined}>
+            {shareMode && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                <span style={{ fontSize: 22, color: isSelected ? 'var(--cyan)' : 'var(--border)', lineHeight: 1 }}>
+                  {isSelected ? '✓' : '○'}
+                </span>
+              </div>
+            )}
             {photos.length > 0 && (
               <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10, paddingBottom: 2 }}>
                 {photos.map((src, i) => (
@@ -627,15 +693,17 @@ function PhonesTab({ onPhoneSold }) {
                 Rs {Number(p.selling_price).toLocaleString()}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button onClick={() => sharePhone(p)}
-                style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-                📤 Share
-              </button>
-              <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
-                Sell via 💰 Sale tab
+            {!shareMode && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => sharePhone(p)}
+                  style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                  📤 Share
+                </button>
+                <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
+                  Sell via 💰 Sale tab
+                </div>
               </div>
-            </div>
+            )}
           </div>
         );
       })}
