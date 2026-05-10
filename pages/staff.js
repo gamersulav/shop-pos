@@ -439,7 +439,8 @@ function PhonesTab({ onPhoneSold }) {
   const [done, setDone]       = useState('');
   const [sortBy, setSortBy]   = useState('recents');
   const [search, setSearch]   = useState('');
-  const [stockForm, setStockForm] = useState({ model: '', condition: 'Good', notes: '', photos: [] });
+  const BLANK_STOCK = { brand: '', phoneModel: '', ram: '', storage: '', condition: 'Good', notes: '', photos: [] };
+  const [stockForm, setStockForm] = useState(BLANK_STOCK);
   const [shareToast, setShareToast]       = useState('');
   const [shareMode, setShareMode]         = useState(false);
   const [shareSelection, setShareSelection] = useState(new Set());
@@ -511,17 +512,21 @@ function PhonesTab({ onPhoneSold }) {
   }
 
   async function stockIn() {
-    if (!stockForm.model.trim()) { alert('Enter phone model'); return; }
+    if (!stockForm.brand.trim())     { alert('Enter brand'); return; }
+    if (!stockForm.phoneModel.trim()){ alert('Enter phone model'); return; }
+    if (!stockForm.ram)              { alert('Select RAM'); return; }
+    if (!stockForm.storage)          { alert('Select storage'); return; }
+    const model = `${stockForm.brand.trim()} ${stockForm.phoneModel.trim()} ${stockForm.ram}/${stockForm.storage}`;
     setSaving(true);
     const res = await fetch('/api/phones', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: stockForm.model, condition: stockForm.condition, notes: stockForm.notes, photos: stockForm.photos }),
+      body: JSON.stringify({ model, condition: stockForm.condition, notes: stockForm.notes, photos: stockForm.photos }),
     });
     setSaving(false);
     if (res.ok) {
       setDone('stocked');
-      setStockForm({ model: '', condition: 'Good', notes: '', photos: [] });
+      setStockForm(BLANK_STOCK);
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
@@ -535,19 +540,54 @@ function PhonesTab({ onPhoneSold }) {
         <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Stock In Used Phone</h2>
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHONE MODEL & STORAGE</label>
-            <input type="text" placeholder="e.g. iPhone 12 Pro 256GB Black"
-              value={stockForm.model} onChange={e => setStockForm(f => ({ ...f, model: e.target.value }))} />
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>BRAND *</label>
+            <input type="text" placeholder="e.g. Apple, Samsung, Xiaomi, OnePlus"
+              value={stockForm.brand} onChange={e => setStockForm(f => ({ ...f, brand: e.target.value }))} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CONDITION</label>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHONE MODEL *</label>
+            <input type="text" placeholder="e.g. iPhone 15 Pro Max, Galaxy S24 Ultra"
+              value={stockForm.phoneModel} onChange={e => setStockForm(f => ({ ...f, phoneModel: e.target.value }))} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>RAM *</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {['2GB','3GB','4GB','6GB','8GB','10GB','12GB','16GB'].map(v => (
+                <button key={v} type="button"
+                  onClick={() => setStockForm(f => ({ ...f, ram: v }))}
+                  style={{ padding: '6px 13px', fontSize: 13, fontWeight: 700, borderRadius: 20,
+                    border: '1.5px solid ' + (stockForm.ram === v ? 'var(--cyan)' : 'var(--border)'),
+                    background: stockForm.ram === v ? 'rgba(0,212,255,0.15)' : 'transparent',
+                    color: stockForm.ram === v ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STORAGE *</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {['16GB','32GB','64GB','128GB','256GB','512GB','1TB'].map(v => (
+                <button key={v} type="button"
+                  onClick={() => setStockForm(f => ({ ...f, storage: v }))}
+                  style={{ padding: '6px 13px', fontSize: 13, fontWeight: 700, borderRadius: 20,
+                    border: '1.5px solid ' + (stockForm.storage === v ? 'var(--cyan)' : 'var(--border)'),
+                    background: stockForm.storage === v ? 'rgba(0,212,255,0.15)' : 'transparent',
+                    color: stockForm.storage === v ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CONDITION *</label>
             <select value={stockForm.condition} onChange={e => setStockForm(f => ({ ...f, condition: e.target.value }))}>
               <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
             </select>
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>NOTES (Optional)</label>
-            <input type="text" placeholder="Any damage, accessories included, etc."
+            <input type="text" placeholder="Any damage, accessories included, colour, etc."
               value={stockForm.notes} onChange={e => setStockForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
           <div>
