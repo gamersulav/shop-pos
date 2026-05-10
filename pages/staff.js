@@ -1288,6 +1288,7 @@ function CreditsTab() {
   const [loading, setLoading]   = useState(true);
   const [discounting, setDiscounting] = useState(null);
   const [lineDiscounts, setLineDiscounts] = useState({});
+  const [clearedMethod, setClearedMethod] = useState('Cash');
 
   useEffect(() => { loadCredits(); }, []);
 
@@ -1298,12 +1299,13 @@ function CreditsTab() {
     setLoading(false);
   }
 
-  async function clearCredit(type, id, totalDiscount) {
+  async function clearCredit(type, id, totalDiscount, method) {
     setClearing(`${type}-${id}`);
-    await fetch('/api/credits', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, id, discount: Number(totalDiscount) || 0 }) });
+    await fetch('/api/credits', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, id, discount: Number(totalDiscount) || 0, clearedPaymentMethod: method }) });
     setClearing(null);
     setDiscounting(null);
     setLineDiscounts({});
+    setClearedMethod('Cash');
     setCleared(prev => ({ ...prev, [`${type}-${id}`]: true }));
     setTimeout(() => { setCleared(prev => { const n = { ...prev }; delete n[`${type}-${id}`]; return n; }); loadCredits(); }, 1500);
   }
@@ -1354,7 +1356,7 @@ function CreditsTab() {
                   <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 14 }}>✓ Paid!</span>
                 ) : !isDiscounting ? (
                   <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '8px 18px' }}
-                    onClick={() => { setDiscounting(key); setLineDiscounts({}); }} disabled={isClearing}>
+                    onClick={() => { setDiscounting(key); setLineDiscounts({}); setClearedMethod('Cash'); }} disabled={isClearing}>
                     ✓ Mark Paid
                   </button>
                 ) : null}
@@ -1391,13 +1393,24 @@ function CreditsTab() {
                       Disc Rs {totalDisc.toLocaleString()} → <strong style={{ color: 'var(--fg)' }}>Collect Rs {Math.max(0, amount - totalDisc).toLocaleString()}</strong>
                     </div>
                   )}
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Paid via:</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'].map(m => (
+                        <button key={m} className={`btn btn-sm ${clearedMethod === m ? 'btn-cyan' : 'btn-ghost'}`}
+                          style={{ flex: 1, minWidth: 60 }} onClick={() => setClearedMethod(m)}>
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-green btn-sm" style={{ flex: 1 }}
-                      onClick={() => clearCredit(item._type, item.id, totalDisc)} disabled={isClearing}>
+                      onClick={() => clearCredit(item._type, item.id, totalDisc, clearedMethod)} disabled={isClearing}>
                       {isClearing ? '…' : '✓ Confirm'}
                     </button>
                     <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
-                      onClick={() => { setDiscounting(null); setLineDiscounts({}); }}>
+                      onClick={() => { setDiscounting(null); setLineDiscounts({}); setClearedMethod('Cash'); }}>
                       Cancel
                     </button>
                   </div>

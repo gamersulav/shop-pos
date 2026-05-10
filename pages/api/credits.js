@@ -44,19 +44,21 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PUT') {
-    const { type, id, discount = 0 } = req.body;
+    const { type, id, discount = 0, clearedPaymentMethod = 'Cash' } = req.body;
     if (!type || !id) return res.status(400).json({ error: 'type and id required' });
     const disc = Math.max(0, Number(discount) || 0);
+    const VALID_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
+    const method = VALID_METHODS.includes(clearedPaymentMethod) ? clearedPaymentMethod : 'Cash';
 
     if (type === 'sale') {
       await db.run(
-        "UPDATE sales SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=? WHERE id=? AND payment_method='Credit'",
-        [disc, Number(id)]
+        "UPDATE sales SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=?, cleared_payment_method=? WHERE id=? AND payment_method='Credit'",
+        [disc, method, Number(id)]
       );
     } else if (type === 'repair') {
       await db.run(
-        "UPDATE repairs SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=? WHERE id=? AND payment_method='Credit'",
-        [disc, Number(id)]
+        "UPDATE repairs SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=?, cleared_payment_method=? WHERE id=? AND payment_method='Credit'",
+        [disc, method, Number(id)]
       );
     } else {
       return res.status(400).json({ error: 'Invalid type' });

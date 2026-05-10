@@ -67,8 +67,8 @@ export default async function handler(req, res) {
   // ── Monthly: repairs ─────────────────────────────────────────────────────
   const repairMonthly = await db.query(`
     SELECT CAST(strftime('%m', created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price ELSE 0 END), 0)              as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     WHERE strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
@@ -115,11 +115,50 @@ export default async function handler(req, res) {
   // ── Yearly totals: repairs ────────────────────────────────────────────────
   const yearlyRepair = await db.query(`
     SELECT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price ELSE 0 END), 0)              as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     GROUP BY yr ORDER BY yr DESC
+  `);
+
+  // ── Monthly credit discounts (product-only and phone-only sales) ─────────
+  const prodCreditDiscs = await db.query(`
+    SELECT CAST(strftime('%m', s.created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
+           COALESCE(SUM(s.credit_discount), 0) as disc
+    FROM sales s
+    WHERE strftime('%Y', s.created_at, '+5 hours', '+45 minutes') = ?
+      AND s.credit_cleared = 1 AND s.credit_discount > 0
+      AND NOT EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id IS NULL)
+    GROUP BY month
+  `, [year]);
+
+  const phoneCreditDiscs = await db.query(`
+    SELECT CAST(strftime('%m', s.created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
+           COALESCE(SUM(s.credit_discount), 0) as disc
+    FROM sales s
+    WHERE strftime('%Y', s.created_at, '+5 hours', '+45 minutes') = ?
+      AND s.credit_cleared = 1 AND s.credit_discount > 0
+      AND NOT EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id IS NOT NULL)
+    GROUP BY month
+  `, [year]);
+
+  const yearlyProdCreditDiscs = await db.query(`
+    SELECT strftime('%Y', s.created_at, '+5 hours', '+45 minutes') as yr,
+           COALESCE(SUM(s.credit_discount), 0) as disc
+    FROM sales s
+    WHERE s.credit_cleared = 1 AND s.credit_discount > 0
+      AND NOT EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id IS NULL)
+    GROUP BY yr
+  `);
+
+  const yearlyPhoneCreditDiscs = await db.query(`
+    SELECT strftime('%Y', s.created_at, '+5 hours', '+45 minutes') as yr,
+           COALESCE(SUM(s.credit_discount), 0) as disc
+    FROM sales s
+    WHERE s.credit_cleared = 1 AND s.credit_discount > 0
+      AND NOT EXISTS (SELECT 1 FROM sale_items si WHERE si.sale_id = s.id AND si.product_id IS NOT NULL)
+    GROUP BY yr
   `);
 
   // ── Monthly expenses ──────────────────────────────────────────────────────
@@ -145,24 +184,34 @@ export default async function handler(req, res) {
     return m;
   }
 
-  function toMonthArray(rows, countKey, returnsMap = {}) {
+  function toMonthArray(rows, countKey, returnsMap = {}, creditDiscMap = {}) {
     const map = makeMap(rows);
     return Array.from({ length: 12 }, (_, i) => {
       const m = i + 1;
       const ret = returnsMap[m] || { revenue: 0, profit: 0 };
+      const disc = Number(creditDiscMap[m] || 0);
       return {
         month:   m,
-        revenue: Math.max(0, Number(map[m]?.revenue || 0) - Number(ret.revenue)),
-        profit:  Math.max(0, Number(map[m]?.profit  || 0) - Number(ret.profit)),
+        revenue: Math.max(0, Number(map[m]?.revenue || 0) - Number(ret.revenue) - disc),
+        profit:  Math.max(0, Number(map[m]?.profit  || 0) - Number(ret.profit) - disc),
         count:   Number(map[m]?.[countKey] || 0),
       };
     });
   }
 
-  const prodRetMap   = makeMap(prodReturnsMonthly);
-  const phoneRetMap  = makeMap(phoneReturnsMonthly);
-  const yrProdRetMap = makeMap(yearlyProdReturns);
+  const prodRetMap    = makeMap(prodReturnsMonthly);
+  const phoneRetMap   = makeMap(phoneReturnsMonthly);
+  const yrProdRetMap  = makeMap(yearlyProdReturns);
   const yrPhoneRetMap = makeMap(yearlyPhoneReturns);
+
+  const prodCreditDiscMap  = {};
+  prodCreditDiscs.forEach(r => { prodCreditDiscMap[Number(r.month)] = Number(r.disc); });
+  const phoneCreditDiscMap = {};
+  phoneCreditDiscs.forEach(r => { phoneCreditDiscMap[Number(r.month)] = Number(r.disc); });
+  const yrProdCreditDiscMap  = {};
+  yearlyProdCreditDiscs.forEach(r => { yrProdCreditDiscMap[r.yr] = Number(r.disc); });
+  const yrPhoneCreditDiscMap = {};
+  yearlyPhoneCreditDiscs.forEach(r => { yrPhoneCreditDiscMap[r.yr] = Number(r.disc); });
 
   // Build expense lookup maps
   const expMonthMap = {};
@@ -173,18 +222,20 @@ export default async function handler(req, res) {
   res.json({
     year,
     years,
-    products:       toMonthArray(prodMonthly,  'sales', prodRetMap),
-    phones:         toMonthArray(phoneMonthly, 'sales', phoneRetMap),
+    products:       toMonthArray(prodMonthly,  'sales', prodRetMap,  prodCreditDiscMap),
+    phones:         toMonthArray(phoneMonthly, 'sales', phoneRetMap, phoneCreditDiscMap),
     repairs:        toMonthArray(repairMonthly, 'count'),
     expensesByMonth: expMonthMap,
     yearly: {
       products: yearlyProd.map(r => {
-        const ret = yrProdRetMap[r.yr] || { revenue: 0, profit: 0 };
-        return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue)), profit: Math.max(0, Number(r.profit) - Number(ret.profit)), count: Number(r.sales) };
+        const ret  = yrProdRetMap[r.yr]  || { revenue: 0, profit: 0 };
+        const disc = yrProdCreditDiscMap[r.yr] || 0;
+        return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue) - disc), profit: Math.max(0, Number(r.profit) - Number(ret.profit) - disc), count: Number(r.sales) };
       }),
       phones: yearlyPhone.map(r => {
-        const ret = yrPhoneRetMap[r.yr] || { revenue: 0, profit: 0 };
-        return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue)), profit: Math.max(0, Number(r.profit) - Number(ret.profit)), count: Number(r.sales) };
+        const ret  = yrPhoneRetMap[r.yr]  || { revenue: 0, profit: 0 };
+        const disc = yrPhoneCreditDiscMap[r.yr] || 0;
+        return { year: r.yr, revenue: Math.max(0, Number(r.revenue) - Number(ret.revenue) - disc), profit: Math.max(0, Number(r.profit) - Number(ret.profit) - disc), count: Number(r.sales) };
       }),
       repairs:  yearlyRepair.map(r => ({ year: r.yr, revenue: Number(r.revenue), profit: Number(r.profit), count: Number(r.count) })),
       expenses: expYearMap,

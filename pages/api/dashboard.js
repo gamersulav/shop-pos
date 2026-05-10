@@ -15,7 +15,7 @@ export default async function handler(req, res) {
 
   // ── Today ─────────────────────────────────────────────────────────────────
   const today = await db.queryOne(`
-    SELECT COALESCE(SUM(total_amount),0) as revenue,
+    SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue,
            COUNT(*)                      as sales
     FROM sales
     WHERE ${nptDate('created_at')} = ${NPT_TODAY}`);
@@ -30,6 +30,10 @@ export default async function handler(req, res) {
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}`);
 
+  const todayCreditDiscs = await db.queryOne(`
+    SELECT COALESCE(SUM(credit_discount),0) as total
+    FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY} AND credit_cleared=1`);
+
   const todayReturns = await db.queryOne(`
     SELECT COALESCE(SUM(return_amount),0) as revenue,
            COALESCE(SUM(return_profit),0) as profit
@@ -38,13 +42,17 @@ export default async function handler(req, res) {
 
   // ── This month ────────────────────────────────────────────────────────────
   const monthly = await db.queryOne(`
-    SELECT COALESCE(SUM(total_amount),0) as revenue, COUNT(*) as sales
+    SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales
     FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH}`);
 
   const monthlyProfit = await db.queryOne(`
     SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
+
+  const monthlyCreditDiscs = await db.queryOne(`
+    SELECT COALESCE(SUM(credit_discount),0) as total
+    FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH} AND credit_cleared=1`);
 
   const monthlyReturns = await db.queryOne(`
     SELECT COALESCE(SUM(return_amount),0) as revenue,
@@ -98,9 +106,9 @@ export default async function handler(req, res) {
     WHERE si.product_id IS NULL AND ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
 
   const todayRev    = Number(today?.revenue    || 0) - Number(todayReturns?.revenue  || 0);
-  const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0);
+  const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0) - Number(todayCreditDiscs?.total || 0);
   const rev         = Number(monthly?.revenue  || 0) - Number(monthlyReturns?.revenue || 0);
-  const profit      = Number(monthlyProfit?.profit || 0) - Number(monthlyReturns?.profit || 0);
+  const profit      = Number(monthlyProfit?.profit || 0) - Number(monthlyReturns?.profit || 0) - Number(monthlyCreditDiscs?.total || 0);
 
   const todayExpTotal   = Number(todayExp?.total   || 0);
   const monthlyExpTotal = Number(monthlyExp?.total || 0);
