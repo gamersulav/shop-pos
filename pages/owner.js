@@ -1190,7 +1190,7 @@ function OwnerCreditsTab() {
   const [clearing, setClearing] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [discounting, setDiscounting] = useState(null);
-  const [discountVal, setDiscountVal] = useState('');
+  const [lineDiscounts, setLineDiscounts] = useState({});
 
   useEffect(() => { loadCredits(); }, []);
 
@@ -1201,16 +1201,16 @@ function OwnerCreditsTab() {
     setLoading(false);
   }
 
-  async function clearCredit(type, id, discount) {
+  async function clearCredit(type, id, totalDiscount) {
     setClearing(`${type}-${id}`);
     await fetch('/api/credits', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, id, discount: Number(discount) || 0 }),
+      body: JSON.stringify({ type, id, discount: Number(totalDiscount) || 0 }),
     });
     setClearing(null);
     setDiscounting(null);
-    setDiscountVal('');
+    setLineDiscounts({});
     loadCredits();
   }
 
@@ -1270,7 +1270,7 @@ function OwnerCreditsTab() {
           const collected = amount - disc;
           const name   = item._type === 'sale' ? (item.credit_customer || 'Unknown') : item.customer_name;
           const typeLabel = item._type === 'repair' ? 'REPAIR' : 'SALE';
-          const liveDisc = Number(discountVal) || 0;
+          const totalDisc = isDiscounting ? Object.values(lineDiscounts).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
 
           return (
             <div key={key} className="card" style={{ opacity: item.credit_cleared ? 0.6 : 1 }}>
@@ -1314,7 +1314,7 @@ function OwnerCreditsTab() {
                 )}
                 {!item.credit_cleared && !isDiscounting && (
                   <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '7px 16px' }}
-                    onClick={() => { setDiscounting(key); setDiscountVal(''); }}>
+                    onClick={() => { setDiscounting(key); setLineDiscounts({}); }}>
                     ✓ Mark Paid
                   </button>
                 )}
@@ -1326,23 +1326,43 @@ function OwnerCreditsTab() {
               </div>
               {isDiscounting && (
                 <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                    <label style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount:</label>
-                    <input type="number" min="0" max={amount} value={discountVal}
-                      onChange={e => setDiscountVal(e.target.value)}
-                      placeholder="0"
-                      style={{ width: 90 }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      Collect: Rs {Math.max(0, amount - liveDisc).toLocaleString()}
-                    </span>
-                  </div>
+                  {item._type === 'sale' && (item.items || []).map(si => {
+                    const lineAmt = Number(si.unit_price) * Number(si.quantity) - (Number(si.item_discount) || 0);
+                    return (
+                      <div key={si.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{si.product_name} ×{si.quantity}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>Rs {lineAmt.toLocaleString()}</div>
+                        </div>
+                        <input type="number" min="0" max={lineAmt} value={lineDiscounts[si.id] ?? ''}
+                          onChange={e => setLineDiscounts(prev => ({ ...prev, [si.id]: e.target.value }))}
+                          placeholder="0" style={{ width: 78 }} />
+                      </div>
+                    );
+                  })}
+                  {item._type === 'repair' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{item.phone_model}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>Rs {amount.toLocaleString()}</div>
+                      </div>
+                      <input type="number" min="0" max={amount} value={lineDiscounts['repair'] ?? ''}
+                        onChange={e => setLineDiscounts(prev => ({ ...prev, repair: e.target.value }))}
+                        placeholder="0" style={{ width: 78 }} />
+                    </div>
+                  )}
+                  {totalDisc > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, textAlign: 'right' }}>
+                      Disc Rs {totalDisc.toLocaleString()} → <strong style={{ color: 'var(--fg)' }}>Collect Rs {Math.max(0, amount - totalDisc).toLocaleString()}</strong>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn btn-green btn-sm" style={{ flex: 1 }}
-                      onClick={() => clearCredit(item._type, item.id, discountVal)} disabled={isClearing}>
+                      onClick={() => clearCredit(item._type, item.id, totalDisc)} disabled={isClearing}>
                       {isClearing ? '…' : '✓ Confirm'}
                     </button>
                     <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
-                      onClick={() => { setDiscounting(null); setDiscountVal(''); }}>
+                      onClick={() => { setDiscounting(null); setLineDiscounts({}); }}>
                       Cancel
                     </button>
                   </div>

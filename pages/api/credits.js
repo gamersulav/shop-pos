@@ -9,15 +9,32 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const all = req.query.all === '1';
-    const salesFilter  = all ? "s.payment_method='Credit'"  : "s.payment_method='Credit' AND s.credit_cleared=0";
-    const repairFilter = all ? "payment_method='Credit'"    : "payment_method='Credit' AND credit_cleared=0";
+    const salesFilter  = all ? "payment_method='Credit'"  : "payment_method='Credit' AND credit_cleared=0";
+    const repairFilter = all ? "payment_method='Credit'"  : "payment_method='Credit' AND credit_cleared=0";
 
-    const sales = await db.query(
-      `SELECT s.*, GROUP_CONCAT(si.product_name || ' x' || si.quantity) as items_summary
-       FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id
-       WHERE ${salesFilter}
-       GROUP BY s.id ORDER BY s.created_at DESC`
+    const salesRows = await db.query(
+      `SELECT * FROM sales WHERE ${salesFilter} ORDER BY created_at DESC`
     );
+
+    let itemsMap = {};
+    if (salesRows.length > 0) {
+      const ids = salesRows.map(s => Number(s.id));
+      const placeholders = ids.map(() => '?').join(',');
+      const saleItems = await db.query(
+        `SELECT * FROM sale_items WHERE sale_id IN (${placeholders}) ORDER BY id`,
+        ids
+      );
+      for (const si of saleItems) {
+        const sid = Number(si.sale_id);
+        if (!itemsMap[sid]) itemsMap[sid] = [];
+        itemsMap[sid].push(si);
+      }
+    }
+
+    const sales = salesRows.map(s => {
+      const items = itemsMap[Number(s.id)] || [];
+      return { ...s, items, items_summary: items.map(si => `${si.product_name} x${si.quantity}`).join(', ') };
+    });
 
     const repairs = await db.query(
       `SELECT * FROM repairs WHERE ${repairFilter} ORDER BY created_at DESC`
