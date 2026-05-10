@@ -480,9 +480,31 @@ function PhonesTab({ onPhoneSold }) {
     ? sortedAvailable().filter(p => p.model.toLowerCase().includes(search.toLowerCase()))
     : sortedAvailable();
 
+  async function dataUrlToFile(dataUrl, name) {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return new File([blob], name, { type: blob.type || 'image/jpeg' });
+  }
+
+  function parsePhotos(p) {
+    try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; }
+  }
+
   async function sharePhone(p) {
     const txt = `📱 ${p.model}\nCondition: ${p.condition}\nPrice: Rs ${Number(p.selling_price).toLocaleString()}${p.notes ? '\nNotes: ' + p.notes : ''}`;
-    if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch {} }
+    const photos = parsePhotos(p);
+    if (navigator.share) {
+      try {
+        const shareData = { text: txt };
+        if (photos.length > 0 && navigator.canShare) {
+          const slug = p.model.replace(/\s+/g, '-').slice(0, 40);
+          const files = await Promise.all(photos.map((src, i) => dataUrlToFile(src, `${slug}-${i + 1}.jpg`)));
+          if (navigator.canShare({ files })) shareData.files = files;
+        }
+        await navigator.share(shareData);
+        return;
+      } catch {}
+    }
     try { await navigator.clipboard.writeText(txt); } catch {}
     setShareToast(p.id);
     setTimeout(() => setShareToast(''), 2200);
@@ -495,7 +517,25 @@ function PhonesTab({ onPhoneSold }) {
       `${i + 1}. ${p.model}\n   Condition: ${p.condition} · Rs ${Number(p.selling_price).toLocaleString()}${p.notes ? '\n   ' + p.notes : ''}`
     ).join('\n\n');
     const txt = `📱 Available Used Phones\n\n${lines}`;
-    if (navigator.share) { try { await navigator.share({ text: txt }); exitShareMode(); return; } catch {} }
+    if (navigator.share) {
+      try {
+        const shareData = { text: txt };
+        if (navigator.canShare) {
+          const files = [];
+          for (const p of selected) {
+            const photos = parsePhotos(p);
+            const slug = p.model.replace(/\s+/g, '-').slice(0, 30);
+            for (let i = 0; i < photos.length; i++) {
+              files.push(await dataUrlToFile(photos[i], `${slug}-${i + 1}.jpg`));
+            }
+          }
+          if (files.length > 0 && navigator.canShare({ files })) shareData.files = files;
+        }
+        await navigator.share(shareData);
+        exitShareMode();
+        return;
+      } catch {}
+    }
     try { await navigator.clipboard.writeText(txt); } catch {}
     setShareToast('multi');
     setTimeout(() => { setShareToast(''); exitShareMode(); }, 2200);
@@ -699,7 +739,7 @@ function PhonesTab({ onPhoneSold }) {
       )}
 
       {filteredPhones.map(p => {
-        const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
+        const photos = parsePhotos(p);
         const isSelected = shareSelection.has(p.id);
         return (
           <div key={p.id} className="card"
@@ -714,23 +754,27 @@ function PhonesTab({ onPhoneSold }) {
                 </span>
               </div>
             )}
-            {photos.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10, paddingBottom: 2 }}>
-                {photos.map((src, i) => (
-                  <img key={i} src={src} alt="" style={{ height: 80, width: 80, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{p.model}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                  Condition: <span style={{ color: 'var(--text)' }}>{p.condition}</span>
-                  {p.notes ? <span> · {p.notes}</span> : null}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              {photos.length > 0 && (
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <img src={photos[0]} alt="" style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)', display: 'block' }} />
+                  {photos.length > 1 && (
+                    <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 4px', borderRadius: 4, lineHeight: 1.4 }}>
+                      +{photos.length - 1}
+                    </span>
+                  )}
                 </div>
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--cyan)', marginLeft: 12 }}>
-                Rs {Number(p.selling_price).toLocaleString()}
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, flex: 1, marginRight: 8 }}>{p.model}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--cyan)', flexShrink: 0 }}>
+                    Rs {Number(p.selling_price).toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  {p.condition}{p.notes ? ` · ${p.notes}` : ''}
+                </div>
               </div>
             </div>
             {!shareMode && (
