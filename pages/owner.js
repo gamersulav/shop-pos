@@ -1189,6 +1189,8 @@ function OwnerCreditsTab() {
   const [filter, setFilter]   = useState('pending'); // 'pending' | 'all'
   const [clearing, setClearing] = useState(null);
   const [loading, setLoading]   = useState(true);
+  const [discounting, setDiscounting] = useState(null);
+  const [discountVal, setDiscountVal] = useState('');
 
   useEffect(() => { loadCredits(); }, []);
 
@@ -1199,14 +1201,16 @@ function OwnerCreditsTab() {
     setLoading(false);
   }
 
-  async function clearCredit(type, id) {
+  async function clearCredit(type, id, discount) {
     setClearing(`${type}-${id}`);
     await fetch('/api/credits', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, id }),
+      body: JSON.stringify({ type, id, discount: Number(discount) || 0 }),
     });
     setClearing(null);
+    setDiscounting(null);
+    setDiscountVal('');
     loadCredits();
   }
 
@@ -1260,9 +1264,13 @@ function OwnerCreditsTab() {
         {displayed.map(item => {
           const key = `${item._type}-${item.id}`;
           const isClearing = clearing === key;
+          const isDiscounting = discounting === key;
           const amount = Number(item._type === 'sale' ? item.total_amount : item.customer_price);
+          const disc   = Number(item.credit_discount) || 0;
+          const collected = amount - disc;
           const name   = item._type === 'sale' ? (item.credit_customer || 'Unknown') : item.customer_name;
           const typeLabel = item._type === 'repair' ? 'REPAIR' : 'SALE';
+          const liveDisc = Number(discountVal) || 0;
 
           return (
             <div key={key} className="card" style={{ opacity: item.credit_cleared ? 0.6 : 1 }}>
@@ -1293,13 +1301,21 @@ function OwnerCreditsTab() {
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 18, fontWeight: 800, color: item.credit_cleared ? 'var(--green)' : 'var(--amber)' }}>
-                  Rs {amount.toLocaleString()}
-                </span>
-                {!item.credit_cleared && (
+                {item.credit_cleared && disc > 0 ? (
+                  <div>
+                    <span style={{ fontSize: 13, color: 'var(--muted)', textDecoration: 'line-through', marginRight: 8 }}>Rs {amount.toLocaleString()}</span>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--green)' }}>Rs {collected.toLocaleString()}</span>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>disc Rs {disc.toLocaleString()}</div>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: 18, fontWeight: 800, color: item.credit_cleared ? 'var(--green)' : 'var(--amber)' }}>
+                    Rs {amount.toLocaleString()}
+                  </span>
+                )}
+                {!item.credit_cleared && !isDiscounting && (
                   <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '7px 16px' }}
-                    onClick={() => clearCredit(item._type, item.id)} disabled={isClearing}>
-                    {isClearing ? '…' : '✓ Mark Paid'}
+                    onClick={() => { setDiscounting(key); setDiscountVal(''); }}>
+                    ✓ Mark Paid
                   </button>
                 )}
                 {item.credit_cleared && item.credit_cleared_at && (
@@ -1308,6 +1324,30 @@ function OwnerCreditsTab() {
                   </span>
                 )}
               </div>
+              {isDiscounting && (
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount:</label>
+                    <input type="number" min="0" max={amount} value={discountVal}
+                      onChange={e => setDiscountVal(e.target.value)}
+                      placeholder="0"
+                      style={{ width: 90 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      Collect: Rs {Math.max(0, amount - liveDisc).toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-green btn-sm" style={{ flex: 1 }}
+                      onClick={() => clearCredit(item._type, item.id, discountVal)} disabled={isClearing}>
+                      {isClearing ? '…' : '✓ Confirm'}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
+                      onClick={() => { setDiscounting(null); setDiscountVal(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

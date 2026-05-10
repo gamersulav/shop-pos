@@ -1286,6 +1286,8 @@ function CreditsTab() {
   const [clearing, setClearing] = useState(null);
   const [cleared, setCleared]   = useState({});
   const [loading, setLoading]   = useState(true);
+  const [discounting, setDiscounting] = useState(null);
+  const [discountVal, setDiscountVal] = useState('');
 
   useEffect(() => { loadCredits(); }, []);
 
@@ -1296,10 +1298,12 @@ function CreditsTab() {
     setLoading(false);
   }
 
-  async function clearCredit(type, id) {
+  async function clearCredit(type, id, discount) {
     setClearing(`${type}-${id}`);
-    await fetch('/api/credits', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, id }) });
+    await fetch('/api/credits', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, id, discount: Number(discount) || 0 }) });
     setClearing(null);
+    setDiscounting(null);
+    setDiscountVal('');
     setCleared(prev => ({ ...prev, [`${type}-${id}`]: true }));
     setTimeout(() => { setCleared(prev => { const n = { ...prev }; delete n[`${type}-${id}`]; return n; }); loadCredits(); }, 1500);
   }
@@ -1330,9 +1334,11 @@ function CreditsTab() {
         {pending.map(item => {
           const key = `${item._type}-${item.id}`;
           const isClearing = clearing === key, isCleared = cleared[key];
+          const isDiscounting = discounting === key;
           const amount = Number(item._type === 'sale' ? item.total_amount : item.customer_price);
           const name   = item._type === 'sale' ? (item.credit_customer || 'Unknown') : item.customer_name;
           const typeLabel = item._type === 'repair' ? 'REPAIR' : 'SALE';
+          const liveDisc = Number(discountVal) || 0;
           return (
             <div key={key} className="card" style={{ opacity: isCleared ? 0.5 : 1, transition: 'opacity 0.3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1346,12 +1352,37 @@ function CreditsTab() {
                 <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>Rs {amount.toLocaleString()}</span>
                 {isCleared ? (
                   <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 14 }}>✓ Paid!</span>
-                ) : (
-                  <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '8px 18px' }} onClick={() => clearCredit(item._type, item.id)} disabled={isClearing}>
-                    {isClearing ? '…' : '✓ Mark Paid'}
+                ) : !isDiscounting ? (
+                  <button className="btn btn-green btn-sm" style={{ width: 'auto', padding: '8px 18px' }}
+                    onClick={() => { setDiscounting(key); setDiscountVal(''); }} disabled={isClearing}>
+                    ✓ Mark Paid
                   </button>
-                )}
+                ) : null}
               </div>
+              {isDiscounting && (
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount:</label>
+                    <input type="number" min="0" max={amount} value={discountVal}
+                      onChange={e => setDiscountVal(e.target.value)}
+                      placeholder="0"
+                      style={{ width: 90 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      Collect: Rs {Math.max(0, amount - liveDisc).toLocaleString()}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-green btn-sm" style={{ flex: 1 }}
+                      onClick={() => clearCredit(item._type, item.id, discountVal)} disabled={isClearing}>
+                      {isClearing ? '…' : '✓ Confirm'}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }}
+                      onClick={() => { setDiscounting(null); setDiscountVal(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}

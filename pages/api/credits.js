@@ -27,18 +27,19 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PUT') {
-    const { type, id } = req.body;
+    const { type, id, discount = 0 } = req.body;
     if (!type || !id) return res.status(400).json({ error: 'type and id required' });
+    const disc = Math.max(0, Number(discount) || 0);
 
     if (type === 'sale') {
       await db.run(
-        "UPDATE sales SET credit_cleared=1, credit_cleared_at=datetime('now') WHERE id=? AND payment_method='Credit'",
-        [Number(id)]
+        "UPDATE sales SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=? WHERE id=? AND payment_method='Credit'",
+        [disc, Number(id)]
       );
     } else if (type === 'repair') {
       await db.run(
-        "UPDATE repairs SET credit_cleared=1, credit_cleared_at=datetime('now') WHERE id=? AND payment_method='Credit'",
-        [Number(id)]
+        "UPDATE repairs SET credit_cleared=1, credit_cleared_at=datetime('now'), credit_discount=? WHERE id=? AND payment_method='Credit'",
+        [disc, Number(id)]
       );
     } else {
       return res.status(400).json({ error: 'Invalid type' });
