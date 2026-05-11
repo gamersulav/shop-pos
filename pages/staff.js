@@ -679,12 +679,29 @@ function PhonesTab({ onPhoneSold }) {
       {awaitingPrice.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <SectionLabel>AWAITING PRICING ({awaitingPrice.length})</SectionLabel>
-          {awaitingPrice.map(p => (
-            <div key={p.id} className="card" style={{ marginBottom: 8, opacity: 0.7 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.model}</div>
-              <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 4 }}>⏳ Waiting for owner to set price</div>
-            </div>
-          ))}
+          {awaitingPrice.map(p => {
+            const photos = parsePhotos(p);
+            return (
+              <div key={p.id} className="card" style={{ marginBottom: 8, opacity: 0.8 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  {photos.length > 0 && (
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      <img src={photos[0]} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)', display: 'block' }} />
+                      {photos.length > 1 && (
+                        <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 4px', borderRadius: 4, lineHeight: 1.4 }}>
+                          +{photos.length - 1}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{p.model}</div>
+                    <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 3 }}>⏳ Waiting for owner to set price</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
