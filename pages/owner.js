@@ -54,6 +54,7 @@ export default function Owner() {
       setPrinterName(null);
       return;
     }
+    Printer.onDisconnect(() => { setPrinterOk(false); setPrinterName(null); });
     try {
       const name = await Printer.connect();
       setPrinterOk(true);

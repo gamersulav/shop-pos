@@ -91,6 +91,7 @@ export default function Staff() {
       setPrinterName(null);
       return;
     }
+    Printer.onDisconnect(() => { setPrinterOk(false); setPrinterName(null); });
     try {
       const name = await Printer.connect();
       setPrinterOk(true);
