@@ -307,7 +307,7 @@ function SaleTab({ products, phones }) {
     setSaving(false);
     if (res.ok) {
       try {
-        await Printer.printReceipt({
+        Printer.printReceipt({
           id: saleData.id,
           items: activeItems.map(i => ({
             name:     i.name,
@@ -519,6 +519,12 @@ function PhonesTab({ onPhoneSold }) {
   const [shareToast, setShareToast]       = useState('');
   const [shareMode, setShareMode]         = useState(false);
   const [shareSelection, setShareSelection] = useState(new Set());
+  const [printingId, setPrintingId] = useState(null);
+
+  async function printLabel(p) {
+    setPrintingId(p.id);
+    try { await Printer.printPhoneLabel(p); } finally { setPrintingId(null); }
+  }
 
   useEffect(() => { loadPhones(); }, []);
 
@@ -874,6 +880,10 @@ function PhonesTab({ onPhoneSold }) {
                 <button onClick={() => sharePhone(p)}
                   style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
                   📤 Share
+                </button>
+                <button onClick={() => printLabel(p)} disabled={printingId === p.id}
+                  style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: printingId === p.id ? 'var(--muted)' : 'var(--fg)', cursor: printingId === p.id ? 'default' : 'pointer', fontSize: 13, fontWeight: 700 }}>
+                  {printingId === p.id ? '…' : '🖨 Label'}
                 </button>
                 <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
                   Sell via 💰 Sale tab
@@ -1357,6 +1367,12 @@ function AccessoriesTab({ products, reload }) {
   const [form, setForm]       = useState({ name: '', selling_price: '', photo: '' });
   const [saving, setSaving]   = useState(false);
   const [done, setDone]       = useState('');
+  const [printingId, setPrintingId] = useState(null);
+
+  async function printLabel(p) {
+    setPrintingId(p.id);
+    try { await Printer.printProductLabel(p); } finally { setPrintingId(null); }
+  }
 
   async function handlePhoto(e) {
     const file = e.target.files?.[0];
@@ -1417,17 +1433,27 @@ function AccessoriesTab({ products, reload }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {products.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No accessories yet.</div>}
         {products.map(p => (
-          <div key={p.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            {p.photo && <img src={p.photo} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                Price: <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.selling_price}</span>
-                <span style={{ margin: '0 8px', color: 'var(--border)' }}>|</span>
-                Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{p.stock}</span>
+          <div key={p.id} className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+              {p.photo && <img src={p.photo} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  Price: <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.selling_price}</span>
+                  <span style={{ margin: '0 8px', color: 'var(--border)' }}>|</span>
+                  Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{p.stock}</span>
+                </div>
               </div>
+              {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
             </div>
-            {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
+            <div style={{ marginTop: 10 }}>
+              <button
+                onClick={() => printLabel(p)}
+                disabled={printingId === p.id}
+                style={{ width: '100%', padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: printingId === p.id ? 'var(--muted)' : 'var(--fg)', cursor: printingId === p.id ? 'default' : 'pointer', fontSize: 13, fontWeight: 700 }}>
+                {printingId === p.id ? 'Opening print…' : '🖨 Print Label'}
+              </button>
+            </div>
           </div>
         ))}
       </div>
