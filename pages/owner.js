@@ -28,8 +28,6 @@ export default function Owner() {
   const [tab, setTab] = useState('dash');
   const [products, setProducts] = useState([]);
   const [showChangePw, setShowChangePw] = useState(false);
-  const [printerOk, setPrinterOk]     = useState(false);
-  const [printerName, setPrinterName] = useState(null);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -47,23 +45,6 @@ export default function Owner() {
     router.push('/');
   }
 
-  async function connectPrinter() {
-    if (printerOk) {
-      Printer.disconnect();
-      setPrinterOk(false);
-      setPrinterName(null);
-      return;
-    }
-    Printer.onDisconnect(() => { setPrinterOk(false); setPrinterName(null); });
-    try {
-      const name = await Printer.connect();
-      setPrinterOk(true);
-      setPrinterName(name);
-    } catch (e) {
-      alert(e.message || 'Could not connect to printer');
-    }
-  }
-
   return (
     <>
       <Head><title>Owner Dashboard — Shop POS</title></Head>
@@ -73,10 +54,6 @@ export default function Owner() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
           <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 16 }}>👑 Owner Panel</span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button onClick={connectPrinter} className="btn btn-ghost btn-sm"
-              style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: printerOk ? 'var(--green)' : 'var(--muted)', borderColor: printerOk ? 'var(--green)' : undefined }}>
-              🖨 {printerOk ? (printerName || 'Connected') : 'Printer'}
-            </button>
             <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>
               Staff View
             </button>
@@ -356,7 +333,6 @@ function ProductsTab({ products, reload }) {
   const [printing, setPrinting] = useState(null);
 
   async function printLabel(p) {
-    if (!Printer.isConnected()) { alert('Connect the printer first (🖨 Printer button in header)'); return; }
     setPrinting(p.id);
     try { await Printer.printProductLabel(p); }
     catch (e) { alert(e.message || 'Print failed'); }
@@ -503,7 +479,6 @@ function OwnerPhonesTab() {
   const [printing, setPrinting] = useState(null);
 
   async function printLabel(p) {
-    if (!Printer.isConnected()) { alert('Connect the printer first (🖨 Printer button in header)'); return; }
     setPrinting(p.id);
     try { await Printer.printPhoneLabel(p); }
     catch (e) { alert(e.message || 'Print failed'); }

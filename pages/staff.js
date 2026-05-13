@@ -61,9 +61,6 @@ export default function Staff() {
   const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
-  const [printerOk, setPrinterOk]     = useState(false);
-  const [printerName, setPrinterName] = useState(null);
-
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
@@ -84,23 +81,6 @@ export default function Staff() {
     router.push('/');
   }
 
-  async function connectPrinter() {
-    if (printerOk) {
-      Printer.disconnect();
-      setPrinterOk(false);
-      setPrinterName(null);
-      return;
-    }
-    Printer.onDisconnect(() => { setPrinterOk(false); setPrinterName(null); });
-    try {
-      const name = await Printer.connect();
-      setPrinterOk(true);
-      setPrinterName(name);
-    } catch (e) {
-      alert(e.message || 'Could not connect to printer');
-    }
-  }
-
   return (
     <>
       <Head><title>Staff — Shop POS</title></Head>
@@ -108,10 +88,6 @@ export default function Staff() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button onClick={connectPrinter} className="btn btn-ghost btn-sm"
-              style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: printerOk ? 'var(--green)' : 'var(--muted)', borderColor: printerOk ? 'var(--green)' : undefined }}>
-              🖨 {printerOk ? (printerName || 'Connected') : 'Printer'}
-            </button>
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
@@ -330,23 +306,21 @@ function SaleTab({ products, phones }) {
     const saleData = await res.json().catch(() => ({}));
     setSaving(false);
     if (res.ok) {
-      if (Printer.isConnected()) {
-        try {
-          await Printer.printReceipt({
-            id: saleData.id,
-            items: activeItems.map(i => ({
-              name:     i.name,
-              qty:      i.type === 'phone' ? 1 : i.qty,
-              price:    i.price,
-              discount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
-            })),
-            total: grandTotal,
-            payment,
-            creditCustomer,
-          });
-        } catch (e) {
-          console.error('Print failed:', e);
-        }
+      try {
+        await Printer.printReceipt({
+          id: saleData.id,
+          items: activeItems.map(i => ({
+            name:     i.name,
+            qty:      i.type === 'phone' ? 1 : i.qty,
+            price:    i.price,
+            discount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
+          })),
+          total: grandTotal,
+          payment,
+          creditCustomer,
+        });
+      } catch (e) {
+        console.error('Print failed:', e);
       }
       setDone(true);
       setTimeout(() => {
