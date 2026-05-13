@@ -51,7 +51,7 @@ async function computeClosingForDate(db, date, depth = 0) {
   openRows.forEach(r => {
     open[r.payment_method] = Number(r.amount);
     adj[r.payment_method] = Number(r.adjustment) || 0;
-    explicitMethods.add(r.payment_method);
+    if (Number(r.amount) > 0) explicitMethods.add(r.payment_method);
   });
 
   const needsCarry = METHODS.filter(m => !explicitMethods.has(m));
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
   METHODS.forEach(m => { opening[m] = 0; hasExplicit[m] = false; adjustment[m] = 0; });
   openingRows.forEach(r => {
     opening[r.payment_method] = Number(r.amount);
-    hasExplicit[r.payment_method] = true;
+    if (Number(r.amount) > 0) hasExplicit[r.payment_method] = true;
     adjustment[r.payment_method] = Number(r.adjustment) || 0;
   });
 
@@ -219,6 +219,23 @@ export default async function handler(req, res) {
     methods[m].balance = methods[m].opening + methods[m].inflows - methods[m].outflows + methods[m].adjustment;
   });
 
+  // Discounts given on target date
+  const [discItemsRow, discPhonesRow, discRepairsRow, discCrSalesRow, discCrRepairsRow] = await Promise.all([
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NOT NULL AND si.item_discount > 0 AND date(s.created_at,'+5 hours','+45 minutes')=?`, [targetDate]),
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NULL AND si.item_discount > 0 AND date(s.created_at,'+5 hours','+45 minutes')=?`, [targetDate]),
+    db.queryOne(`SELECT COALESCE(SUM(repair_discount),0) as total FROM repairs WHERE repair_discount > 0 AND status IN ('Done','Delivered') AND date(created_at,'+5 hours','+45 minutes')=?`, [targetDate]),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND date(credit_cleared_at,'+5 hours','+45 minutes')=?`, [targetDate]),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM repairs WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND date(credit_cleared_at,'+5 hours','+45 minutes')=?`, [targetDate]),
+  ]);
+  const discounts = {
+    products:     Number(discItemsRow?.total    || 0),
+    phones:       Number(discPhonesRow?.total   || 0),
+    repairs:      Number(discRepairsRow?.total  || 0),
+    creditSales:  Number(discCrSalesRow?.total  || 0),
+    creditRepairs:Number(discCrRepairsRow?.total|| 0),
+  };
+  discounts.total = discounts.products + discounts.phones + discounts.repairs + discounts.creditSales + discounts.creditRepairs;
+
   // History: last 30 days
   const [histSale, histRepair, histExp, histSupplier, histCreditSale, histCreditRepair] = await Promise.all([
     db.query(`
@@ -282,5 +299,5 @@ export default async function handler(req, res) {
   addHist(histCreditRepair, 'repair_sales');
   const history = Object.values(histMap).sort((a, b) => b.date.localeCompare(a.date));
 
-  res.json({ date: targetDate, methods, expenses: expensesTotal, supplierPayments: supplierTotal, history });
+  res.json({ date: targetDate, methods, expenses: expensesTotal, supplierPayments: supplierTotal, history, discounts });
 }

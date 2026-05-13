@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import * as Printer from '../lib/printer';
 
 const NPT = { timeZone: 'Asia/Kathmandu' };
 function nptToday() { return new Date(Date.now() + (5*60+45)*60*1000).toISOString().split('T')[0]; }
@@ -27,6 +28,8 @@ export default function Owner() {
   const [tab, setTab] = useState('dash');
   const [products, setProducts] = useState([]);
   const [showChangePw, setShowChangePw] = useState(false);
+  const [printerOk, setPrinterOk]     = useState(false);
+  const [printerName, setPrinterName] = useState(null);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -44,6 +47,22 @@ export default function Owner() {
     router.push('/');
   }
 
+  async function connectPrinter() {
+    if (printerOk) {
+      Printer.disconnect();
+      setPrinterOk(false);
+      setPrinterName(null);
+      return;
+    }
+    try {
+      const name = await Printer.connect();
+      setPrinterOk(true);
+      setPrinterName(name);
+    } catch (e) {
+      alert(e.message || 'Could not connect to printer');
+    }
+  }
+
   return (
     <>
       <Head><title>Owner Dashboard — Shop POS</title></Head>
@@ -52,11 +71,15 @@ export default function Owner() {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
           <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 16 }}>👑 Owner Panel</span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={connectPrinter} className="btn btn-ghost btn-sm"
+              style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: printerOk ? 'var(--green)' : 'var(--muted)', borderColor: printerOk ? 'var(--green)' : undefined }}>
+              🖨 {printerOk ? (printerName || 'Connected') : 'Printer'}
+            </button>
             <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>
               Staff View
             </button>
-            <button onClick={() => setShowChangePw(true)} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>🔑 Password</button>
+            <button onClick={() => setShowChangePw(true)} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>🔑</button>
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}>Logout</button>
           </div>
         </div>
@@ -157,7 +180,7 @@ function DashboardTab() {
 
   if (!data) return <LoadingState />;
 
-  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats } = data;
+  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts } = data;
 
   const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
 
@@ -189,6 +212,43 @@ function DashboardTab() {
           <StatCard val={monthly.sales}                            lbl="Sales"        color="var(--purple)" />
         </div>
       </div>
+
+      {/* Discounts */}
+      {(todayDiscounts?.total > 0 || monthlyDiscounts?.total > 0) && (
+        <div>
+          <SectionLabel>DISCOUNTS GIVEN</SectionLabel>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
+              <div style={{ textAlign: 'center', padding: '10px 8px', background: 'rgba(239,68,68,0.07)', borderRadius: 8 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--red)' }}>Rs {(todayDiscounts?.total || 0).toFixed(0)}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Today</div>
+              </div>
+              <div style={{ textAlign: 'center', padding: '10px 8px', background: 'rgba(239,68,68,0.07)', borderRadius: 8 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--red)' }}>Rs {(monthlyDiscounts?.total || 0).toFixed(0)}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>This Month</div>
+              </div>
+            </div>
+            {(() => {
+              const rows = [
+                ['Products',       todayDiscounts?.products,      monthlyDiscounts?.products],
+                ['Phones',         todayDiscounts?.phones,        monthlyDiscounts?.phones],
+                ['Repairs',        todayDiscounts?.repairs,       monthlyDiscounts?.repairs],
+                ['Credit cleared', (todayDiscounts?.creditSales||0)+(todayDiscounts?.creditRepairs||0), (monthlyDiscounts?.creditSales||0)+(monthlyDiscounts?.creditRepairs||0)],
+              ].filter(([, t, m]) => (t||0) > 0 || (m||0) > 0);
+              if (!rows.length) return null;
+              return rows.map(([lbl, t, m]) => (
+                <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--muted)', borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+                  <span>{lbl}</span>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <span>Rs {(t||0).toFixed(0)}</span>
+                    <span>Rs {(m||0).toFixed(0)}</span>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Payment breakdown */}
       {payments?.length > 0 && (
@@ -292,6 +352,15 @@ function ProductsTab({ products, reload }) {
   const [newProd, setNewProd] = useState({ name: '', selling_price: '', cost_price: '', stock: '' });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [printing, setPrinting] = useState(null);
+
+  async function printLabel(p) {
+    if (!Printer.isConnected()) { alert('Connect the printer first (🖨 Printer button in header)'); return; }
+    setPrinting(p.id);
+    try { await Printer.printProductLabel(p); }
+    catch (e) { alert(e.message || 'Print failed'); }
+    finally { setPrinting(null); }
+  }
 
   async function saveProduct() {
     if (!newProd.name || !newProd.selling_price) { alert('Name and selling price required'); return; }
@@ -401,6 +470,10 @@ function ProductsTab({ products, reload }) {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 10px' }}
+                    onClick={() => printLabel(p)} disabled={printing === p.id} title="Print label">
+                    {printing === p.id ? '…' : '🖨'}
+                  </button>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
                     onClick={() => setEditing({ id: p.id, selling_price: p.selling_price, cost_price: p.cost_price, stock: p.stock })}>
                     Edit
@@ -426,6 +499,15 @@ function OwnerPhonesTab() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [view, setView] = useState('available'); // 'available' | 'sold'
+  const [printing, setPrinting] = useState(null);
+
+  async function printLabel(p) {
+    if (!Printer.isConnected()) { alert('Connect the printer first (🖨 Printer button in header)'); return; }
+    setPrinting(p.id);
+    try { await Printer.printPhoneLabel(p); }
+    catch (e) { alert(e.message || 'Print failed'); }
+    finally { setPrinting(null); }
+  }
 
   useEffect(() => { loadPhones(); }, []);
   function loadPhones() {
@@ -511,7 +593,9 @@ function OwnerPhonesTab() {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {displayed.map(p => (
+        {displayed.map(p => {
+          const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
+          return (
           <div key={p.id} className="card">
             {editing?.id === p.id ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -561,14 +645,32 @@ function OwnerPhonesTab() {
             ) : (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{p.model}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      {p.condition}
-                      {p.notes ? ` · ${p.notes}` : ''}
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {photos.length > 0 && (
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <img src={photos[0]} alt="" style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)', display: 'block' }} />
+                        {photos.length > 1 && (
+                          <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 4px', borderRadius: 4, lineHeight: 1.4 }}>
+                            +{photos.length - 1}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{p.model}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                        {p.condition}
+                        {p.notes ? ` · ${p.notes}` : ''}
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {p.status === 'available' && (
+                      <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 8px', fontSize: 12 }}
+                        onClick={() => printLabel(p)} disabled={printing === p.id} title="Print label">
+                        {printing === p.id ? '…' : '🖨'}
+                      </button>
+                    )}
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
                       onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
                       {Number(p.selling_price) ? 'Edit' : '+ Price'}
@@ -601,7 +703,8 @@ function OwnerPhonesTab() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1431,10 +1534,12 @@ function CashTab() {
   async function saveOpening() {
     setSavingOpening(true);
     for (const m of CASH_METHODS) {
+      const amt = Number(openingForm[m]) || 0;
+      if (amt <= 0) continue;
       await fetch('/api/cash-balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, payment_method: m, amount: Number(openingForm[m]) || 0 }),
+        body: JSON.stringify({ date, payment_method: m, amount: amt }),
       });
     }
     setSavingOpening(false);
@@ -1510,28 +1615,24 @@ function CashTab() {
                         <span>Rs {md.opening.toLocaleString()}</span>
                       </div>
                     )}
-                    {md.productSales > 0 && (
+                    {md.inflows > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>+ Product Sales</span>
-                        <span style={{ color: 'var(--green)' }}>+Rs {md.productSales.toLocaleString()}</span>
+                        <span style={{ color: 'var(--muted)' }}>+ Inflows</span>
+                        <span style={{ color: 'var(--green)' }}>+Rs {md.inflows.toLocaleString()}</span>
                       </div>
                     )}
-                    {md.repairSales > 0 && (
+                    {md.outflows > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>+ Repair Collections</span>
-                        <span style={{ color: 'var(--green)' }}>+Rs {md.repairSales.toLocaleString()}</span>
+                        <span style={{ color: 'var(--muted)' }}>− Outflows</span>
+                        <span style={{ color: 'var(--red)' }}>-Rs {md.outflows.toLocaleString()}</span>
                       </div>
                     )}
-                    {m === 'Cash' && data.expenses > 0 && (
+                    {md.adjustment !== 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>− Expenses</span>
-                        <span style={{ color: 'var(--red)' }}>-Rs {data.expenses.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {m === 'Cash' && data.supplierPayments > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>− Supplier Payments</span>
-                        <span style={{ color: 'var(--red)' }}>-Rs {data.supplierPayments.toLocaleString()}</span>
+                        <span style={{ color: 'var(--muted)' }}>Adjustment</span>
+                        <span style={{ color: md.adjustment > 0 ? 'var(--green)' : 'var(--red)' }}>
+                          {md.adjustment > 0 ? '+' : ''}Rs {md.adjustment.toLocaleString()}
+                        </span>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2 }}>

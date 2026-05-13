@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import * as Printer from '../lib/printer';
 
 async function compressImage(file, maxPx = 540, quality = 0.58) {
   return new Promise(resolve => {
@@ -60,6 +61,8 @@ export default function Staff() {
   const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
+  const [printerOk, setPrinterOk]     = useState(false);
+  const [printerName, setPrinterName] = useState(null);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -81,13 +84,35 @@ export default function Staff() {
     router.push('/');
   }
 
+  async function connectPrinter() {
+    if (printerOk) {
+      Printer.disconnect();
+      setPrinterOk(false);
+      setPrinterName(null);
+      return;
+    }
+    try {
+      const name = await Printer.connect();
+      setPrinterOk(true);
+      setPrinterName(name);
+    } catch (e) {
+      alert(e.message || 'Could not connect to printer');
+    }
+  }
+
   return (
     <>
       <Head><title>Staff — Shop POS</title></Head>
       <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
-          <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={connectPrinter} className="btn btn-ghost btn-sm"
+              style={{ width: 'auto', padding: '5px 10px', fontSize: 11, color: printerOk ? 'var(--green)' : 'var(--muted)', borderColor: printerOk ? 'var(--green)' : undefined }}>
+              🖨 {printerOk ? (printerName || 'Connected') : 'Printer'}
+            </button>
+            <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
+          </div>
         </div>
 
         <div className="tab-bar" style={{ overflowX: 'auto' }}>
@@ -204,6 +229,8 @@ function SaleTab({ products, phones }) {
   const [saving, setSaving]           = useState(false);
   const [done, setDone]               = useState(false);
   const [payError, setPayError]       = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const barcodeRef = useRef(null);
 
   const accItems = products.map(p => ({ id: p.id, label: p.name, price: p.selling_price, sublabel: `Rs ${p.selling_price}` }));
   const phoneItems = phones.map(p => ({ id: p.id, label: p.model, price: Number(p.selling_price), sublabel: `${p.condition} · Rs ${Number(p.selling_price).toLocaleString()}` }));
@@ -243,6 +270,40 @@ function SaleTab({ products, phones }) {
     });
   }
 
+  function handleBarcode(raw) {
+    const parsed = Printer.parseCode(raw);
+    if (!parsed) { alert(`Unrecognised barcode: ${raw}`); return; }
+
+    if (parsed.type === 'product') {
+      const prod = products.find(p => p.id === parsed.id);
+      if (!prod) { alert('Product not found'); return; }
+      setItems(prev => {
+        const next = [...prev];
+        const existIdx = next.findIndex(i => i.type === 'accessory' && String(i.productId) === String(prod.id));
+        if (existIdx >= 0) {
+          next[existIdx] = { ...next[existIdx], qty: (Number(next[existIdx].qty) || 1) + 1 };
+        } else {
+          const emptyIdx = next.findIndex(i => !i.productId && !i.phoneId);
+          const newItem  = { type: 'accessory', productId: String(prod.id), phoneId: '', qty: 1, price: prod.selling_price, discount: '', name: prod.name };
+          if (emptyIdx >= 0) next[emptyIdx] = newItem;
+          else next.push(newItem);
+        }
+        return next;
+      });
+    } else {
+      const phone = phones.find(p => p.id === parsed.id);
+      if (!phone) { alert('Phone not found or not available'); return; }
+      setItems(prev => {
+        const next = [...prev];
+        const emptyIdx = next.findIndex(i => !i.productId && !i.phoneId);
+        const newItem  = { type: 'phone', productId: '', phoneId: String(phone.id), qty: 1, price: Number(phone.selling_price), discount: '', name: phone.model };
+        if (emptyIdx >= 0) next[emptyIdx] = newItem;
+        else next.push(newItem);
+        return next;
+      });
+    }
+  }
+
   async function saveSale() {
     if (!activeItems.length) { alert('Add at least one item'); return; }
     if (!payment) { setPayError(true); return; }
@@ -265,8 +326,27 @@ function SaleTab({ products, phones }) {
         creditCustomer,
       }),
     });
+    const saleData = await res.json().catch(() => ({}));
     setSaving(false);
     if (res.ok) {
+      if (Printer.isConnected()) {
+        try {
+          await Printer.printReceipt({
+            id: saleData.id,
+            items: activeItems.map(i => ({
+              name:     i.name,
+              qty:      i.type === 'phone' ? 1 : i.qty,
+              price:    i.price,
+              discount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
+            })),
+            total: grandTotal,
+            payment,
+            creditCustomer,
+          });
+        } catch (e) {
+          console.error('Print failed:', e);
+        }
+      }
       setDone(true);
       setTimeout(() => {
         setItems([emptyItem(), emptyItem()]);
@@ -276,8 +356,7 @@ function SaleTab({ products, phones }) {
         setDone(false);
       }, 1800);
     } else {
-      const d = await res.json().catch(() => ({}));
-      alert(d.error || 'Error saving sale. Try again.');
+      alert(saleData.error || 'Error saving sale. Try again.');
     }
   }
 
@@ -288,6 +367,27 @@ function SaleTab({ products, phones }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>New Sale</h2>
         <span style={{ color: 'var(--muted)', fontSize: 13 }}>{items.length} rows</span>
+      </div>
+
+      {/* Barcode scanner input */}
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+        <input
+          ref={barcodeRef}
+          value={barcodeInput}
+          onChange={e => setBarcodeInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && barcodeInput.trim()) {
+              handleBarcode(barcodeInput.trim());
+              setBarcodeInput('');
+            }
+          }}
+          placeholder="📷 Scan barcode or type code + Enter"
+          style={{ flex: 1, fontFamily: 'monospace', fontSize: 13, letterSpacing: 1 }}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
       </div>
 
       {items.map((item, idx) => {
@@ -1677,7 +1777,7 @@ function StaffPaymentBalanceTab() {
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ padding: '7px 6px', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Out</td>
               {CASH_METHODS.map(m => {
-                const v = m === 'Cash' ? Number(data.methods[m]?.outflows || 0) : 0;
+                const v = Number(data.methods[m]?.outflows || 0);
                 return (
                   <td key={m} style={{ padding: '7px 4px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
                     {v > 0 ? <span style={{ color: 'var(--red)' }}>-{v.toLocaleString()}</span> : '—'}
@@ -1792,6 +1892,34 @@ function StaffPaymentBalanceTab() {
           ))}
         </div>
       )}
+
+      {/* Discounts given today */}
+      <div style={{ marginTop: 20 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>DISCOUNTS GIVEN TODAY</div>
+        {data.discounts?.total > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              ['🏷 Products',       data.discounts?.products],
+              ['📱 Phones',         data.discounts?.phones],
+              ['🔧 Repairs',        data.discounts?.repairs],
+              ['💳 Credit cleared', (data.discounts?.creditSales||0) + (data.discounts?.creditRepairs||0)],
+            ].filter(([, v]) => v > 0).map(([lbl, v]) => (
+              <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 13 }}>{lbl}</span>
+                <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--amber)' }}>Rs {Number(v).toLocaleString()}</span>
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', marginTop: 2, background: 'rgba(239,68,68,0.08)', borderRadius: 10, border: '1px solid rgba(239,68,68,0.25)' }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>Total Discounts</span>
+              <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)' }}>Rs {Number(data.discounts.total).toLocaleString()}</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--muted)', fontSize: 13, border: '1px solid var(--border)', borderRadius: 12 }}>
+            No discounts given today
+          </div>
+        )}
+      </div>
     </div>
   );
 }

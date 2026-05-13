@@ -105,6 +105,28 @@ export default async function handler(req, res) {
     FROM sales s JOIN sale_items si ON si.sale_id=s.id
     WHERE si.product_id IS NULL AND ${nptMonth('s.created_at')} = ${NPT_MONTH}`);
 
+  // ── Discounts ─────────────────────────────────────────────────────────────────
+  const [dTodayItems, dTodayPhones, dTodayRepairs, dTodayCrSales, dTodayCrRepairs,
+         dMonthItems, dMonthPhones, dMonthRepairs, dMonthCrSales, dMonthCrRepairs] = await Promise.all([
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NOT NULL AND si.item_discount > 0 AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NULL AND si.item_discount > 0 AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(repair_discount),0) as total FROM repairs WHERE repair_discount > 0 AND status IN ('Done','Delivered') AND ${nptDate('created_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptDate('credit_cleared_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM repairs WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptDate('credit_cleared_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NOT NULL AND si.item_discount > 0 AND ${nptMonth('s.created_at')} = ${NPT_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NULL AND si.item_discount > 0 AND ${nptMonth('s.created_at')} = ${NPT_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(repair_discount),0) as total FROM repairs WHERE repair_discount > 0 AND status IN ('Done','Delivered') AND ${nptMonth('created_at')} = ${NPT_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptMonth('credit_cleared_at')} = ${NPT_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(credit_discount),0) as total FROM repairs WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptMonth('credit_cleared_at')} = ${NPT_MONTH}`),
+  ]);
+  function buildDisc(items, phones, repairs, crSales, crRepairs) {
+    const d = { products: Number(items?.total||0), phones: Number(phones?.total||0), repairs: Number(repairs?.total||0), creditSales: Number(crSales?.total||0), creditRepairs: Number(crRepairs?.total||0) };
+    d.total = d.products + d.phones + d.repairs + d.creditSales + d.creditRepairs;
+    return d;
+  }
+  const todayDiscounts   = buildDisc(dTodayItems, dTodayPhones, dTodayRepairs, dTodayCrSales, dTodayCrRepairs);
+  const monthlyDiscounts = buildDisc(dMonthItems, dMonthPhones, dMonthRepairs, dMonthCrSales, dMonthCrRepairs);
+
   const todayRev    = Number(today?.revenue    || 0) - Number(todayReturns?.revenue  || 0);
   const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0) - Number(todayCreditDiscs?.total || 0);
   const rev         = Number(monthly?.revenue  || 0) - Number(monthlyReturns?.revenue || 0);
@@ -140,5 +162,7 @@ export default async function handler(req, res) {
       profitThisMonth: Number(phoneProfit?.phone_profit_month || 0),
       needsPricing:    Number(phoneStats?.needs_pricing   || 0),
     },
+    todayDiscounts,
+    monthlyDiscounts,
   });
 }
