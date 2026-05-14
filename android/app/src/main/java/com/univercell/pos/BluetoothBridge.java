@@ -127,6 +127,11 @@ public class BluetoothBridge {
         closeSocket();
     }
 
+    @JavascriptInterface
+    public void ping(String cbId) {
+        cb(cbId, "pong", null);
+    }
+
     void onPermissionResult(boolean granted) {
         if (permCallbackId != null) {
             cb(permCallbackId, granted ? "granted" : "denied", null);

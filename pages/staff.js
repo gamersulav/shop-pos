@@ -76,6 +76,8 @@ export default function Staff() {
   const [btDevices,    setBtDevices]    = useState([]);
   const [btAvail,      setBtAvail]      = useState(false);
   const [btError,      setBtError]      = useState('');
+  const [btMsg,        setBtMsg]        = useState('');
+  const [btPrinting,   setBtPrinting]   = useState(false);
 
   useEffect(() => {
     // window.ShopBT is registered via addJavascriptInterface before any JS runs
@@ -136,28 +138,37 @@ export default function Staff() {
     }
   }
 
+  function showBtMsg(msg) {
+    setBtMsg(msg);
+    setTimeout(() => setBtMsg(''), 3000);
+  }
+
   async function onPrintReceipt(receiptData) {
-    try {
-      await BTPrint.printReceipt(receiptData);
-    } catch (e) {
-      setBtError(e.message || String(e));
-    }
+    setBtPrinting(true); setBtError('');
+    try { await BTPrint.printReceipt(receiptData); showBtMsg('Receipt printed'); }
+    catch (e) { setBtError(e.message || String(e)); }
+    finally { setBtPrinting(false); }
   }
 
   async function onPrintProductLabel(product) {
-    try {
-      await BTPrint.printProductLabel(product);
-    } catch (e) {
-      setBtError(e.message || String(e));
-    }
+    setBtPrinting(true); setBtError('');
+    try { await BTPrint.printProductLabel(product); showBtMsg('Label printed'); }
+    catch (e) { setBtError(e.message || String(e)); }
+    finally { setBtPrinting(false); }
   }
 
   async function onPrintPhoneLabel(phone) {
-    try {
-      await BTPrint.printPhoneLabel(phone);
-    } catch (e) {
-      setBtError(e.message || String(e));
-    }
+    setBtPrinting(true); setBtError('');
+    try { await BTPrint.printPhoneLabel(phone); showBtMsg('Label printed'); }
+    catch (e) { setBtError(e.message || String(e)); }
+    finally { setBtPrinting(false); }
+  }
+
+  async function handleTestPrint() {
+    setBtPrinting(true); setBtError('');
+    try { await BTPrint.printTest(); showBtMsg('Test sent — check printer'); }
+    catch (e) { setBtError(e.message || String(e)); }
+    finally { setBtPrinting(false); }
   }
 
 
@@ -169,13 +180,22 @@ export default function Staff() {
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {btAvail && (
-              <button
-                onClick={btConnected ? handleBtDisconnect : handleBtConnect}
-                disabled={btConnecting}
-                className="btn btn-ghost btn-sm"
-                style={{ width: 'auto', padding: '6px 12px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700 }}>
-                {btConnecting ? '…' : btConnected ? `🖨 ${btName}` : '🖨 Printer'}
-              </button>
+              <>
+                <button
+                  onClick={btConnected ? handleBtDisconnect : handleBtConnect}
+                  disabled={btConnecting || btPrinting}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: 'auto', padding: '6px 12px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700 }}>
+                  {btConnecting ? '…' : btPrinting ? '⏳' : btConnected ? `🖨 ${btName}` : '🖨 Printer'}
+                </button>
+                {btConnected && (
+                  <button onClick={handleTestPrint} disabled={btPrinting}
+                    className="btn btn-ghost btn-sm"
+                    style={{ width: 'auto', padding: '6px 10px', color: 'var(--amber)', fontWeight: 700, fontSize: 11 }}>
+                    Test
+                  </button>
+                )}
+              </>
             )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
@@ -184,6 +204,11 @@ export default function Staff() {
         {btError ? (
           <div onClick={() => setBtError('')} style={{ background: 'var(--red)', color: '#fff', fontSize: 12, padding: '8px 16px', cursor: 'pointer' }}>
             ⚠ {btError} (tap to dismiss)
+          </div>
+        ) : null}
+        {btMsg ? (
+          <div style={{ background: 'var(--green)', color: '#fff', fontSize: 12, padding: '8px 16px', fontWeight: 700 }}>
+            ✓ {btMsg}
           </div>
         ) : null}
 
