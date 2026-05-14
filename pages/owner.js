@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import * as Printer from '../lib/printer';
 
 const NPT = { timeZone: 'Asia/Kathmandu' };
 function nptToday() { return new Date(Date.now() + (5*60+45)*60*1000).toISOString().split('T')[0]; }
@@ -334,7 +333,7 @@ function ProductsTab({ products, reload }) {
 
   async function printLabel(p) {
     setPrinting(p.id);
-    try { await Printer.printProductLabel(p); }
+    try { const BT = await import('../lib/btprint'); await BT.printProductLabel(p); }
     catch (e) { alert(e.message || 'Print failed'); }
     finally { setPrinting(null); }
   }
@@ -480,7 +479,7 @@ function OwnerPhonesTab() {
 
   async function printLabel(p) {
     setPrinting(p.id);
-    try { await Printer.printPhoneLabel(p); }
+    try { const BT = await import('../lib/btprint'); await BT.printPhoneLabel(p); }
     catch (e) { alert(e.message || 'Print failed'); }
     finally { setPrinting(null); }
   }
