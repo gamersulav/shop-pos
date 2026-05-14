@@ -76,17 +76,17 @@ export default function Staff() {
   const [btAvail,      setBtAvail]      = useState(false);
 
   useEffect(() => {
-    // Capacitor injects its bridge after page load, so poll until available
+    // Capacitor injects its bridge after page load — poll at 50ms until ready
     let attempts = 0;
     const id = setInterval(() => {
       attempts++;
       if (window.Capacitor?.isNativePlatform?.()) {
         setBtAvail(true);
         clearInterval(id);
-      } else if (attempts >= 25) {
+      } else if (attempts >= 40) {
         clearInterval(id);
       }
-    }, 200);
+    }, 50);
 
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
@@ -112,7 +112,6 @@ export default function Staff() {
     setBtConnecting(true);
     try {
       const BTPrint = await import('../lib/btprint');
-      await BTPrint.requestPermissions();
       const devices = await BTPrint.listPaired();
       setBtDevices(devices);
       setShowPicker(true);
