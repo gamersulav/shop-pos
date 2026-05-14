@@ -141,6 +141,24 @@ export default function Staff() {
     }
   }
 
+  async function onPrintProductLabel(product) {
+    try {
+      const BTPrint = await import('../lib/btprint');
+      await BTPrint.printProductLabel(product);
+    } catch (e) {
+      alert('Print failed: ' + (e.message || e));
+    }
+  }
+
+  async function onPrintPhoneLabel(phone) {
+    try {
+      const BTPrint = await import('../lib/btprint');
+      await BTPrint.printPhoneLabel(phone);
+    } catch (e) {
+      alert('Print failed: ' + (e.message || e));
+    }
+  }
+
 
   return (
     <>
@@ -197,10 +215,10 @@ export default function Staff() {
 
         <div style={{ padding: '16px' }}>
           {tab === 'sale'        && <SaleTab products={products} phones={phones} btConnected={btConnected} onPrint={onPrintReceipt} />}
-          {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} />}
+          {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} btConnected={btConnected} onPrintLabel={onPrintPhoneLabel} />}
           {tab === 'repair'      && <RepairTab />}
           {tab === 'stock'       && <StockTab products={products} />}
-          {tab === 'accessories' && <AccessoriesTab products={products} reload={loadProducts} />}
+          {tab === 'accessories' && <AccessoriesTab products={products} reload={loadProducts} btConnected={btConnected} onPrintLabel={onPrintProductLabel} />}
           {tab === 'returns'     && <ReturnsTab products={products} />}
           {tab === 'credits'     && <CreditsTab />}
           {tab === 'balance'     && <StaffPaymentBalanceTab />}
@@ -603,7 +621,7 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
 }
 
 // ─── PHONES TAB (stock-in only, no sell) ────────────────────────────────────
-function PhonesTab({ onPhoneSold }) {
+function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
   const [phones, setPhones]   = useState([]);
   const [view, setView]       = useState('list');
   const [saving, setSaving]   = useState(false);
@@ -970,6 +988,12 @@ function PhonesTab({ onPhoneSold }) {
                   style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
                   📤 Share
                 </button>
+                {btConnected && (
+                  <button onClick={() => onPrintLabel(p)}
+                    style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                    🖨 Label
+                  </button>
+                )}
                 <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
                   Sell via 💰 Sale tab
                 </div>
@@ -1447,7 +1471,7 @@ function StockTab({ products }) {
 }
 
 // ─── ACCESSORIES TAB (renamed from Products) ──────────────────────────────────
-function AccessoriesTab({ products, reload }) {
+function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm]       = useState({ name: '', selling_price: '', photo: '' });
   const [saving, setSaving]   = useState(false);
@@ -1524,6 +1548,12 @@ function AccessoriesTab({ products, reload }) {
               </div>
               {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
             </div>
+            {btConnected && (
+              <button onClick={() => onPrintLabel(p)}
+                style={{ width: '100%', marginTop: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                🖨 Print Label
+              </button>
+            )}
           </div>
         ))}
       </div>
