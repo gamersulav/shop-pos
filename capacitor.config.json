@@ -5,5 +5,10 @@
   "server": {
     "url": "https://shop-pos-puce.vercel.app",
     "cleartext": false
+  },
+  "plugins": {
+    "BluetoothSerial": {
+      "neverScanForLocation": true
+    }
   }
 }
