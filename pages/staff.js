@@ -67,6 +67,14 @@ export default function Staff() {
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
 
+  // Bluetooth printer state (only active inside the Android APK)
+  const [btConnected,  setBtConnected]  = useState(false);
+  const [btName,       setBtName]       = useState('');
+  const [btConnecting, setBtConnecting] = useState(false);
+  const [showPicker,   setShowPicker]   = useState(false);
+  const [btDevices,    setBtDevices]    = useState([]);
+  const btAvail = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
@@ -87,6 +95,52 @@ export default function Staff() {
     router.push('/');
   }
 
+  async function handleBtConnect() {
+    setBtConnecting(true);
+    try {
+      const BTPrint = await import('../lib/btprint');
+      await BTPrint.requestPermissions();
+      const devices = await BTPrint.listPaired();
+      setBtDevices(devices);
+      setShowPicker(true);
+    } catch (e) {
+      alert('Bluetooth error: ' + (e.message || e));
+    } finally {
+      setBtConnecting(false);
+    }
+  }
+
+  async function handleBtDisconnect() {
+    const BTPrint = await import('../lib/btprint');
+    await BTPrint.disconnect();
+    setBtConnected(false);
+    setBtName('');
+  }
+
+  async function selectDevice(device) {
+    setShowPicker(false);
+    setBtConnecting(true);
+    try {
+      const BTPrint = await import('../lib/btprint');
+      await BTPrint.connect(device.address);
+      setBtConnected(true);
+      setBtName(device.name || device.address);
+    } catch (e) {
+      alert('Connect failed: ' + (e.message || e));
+    } finally {
+      setBtConnecting(false);
+    }
+  }
+
+  async function onPrintReceipt(receiptData) {
+    try {
+      const BTPrint = await import('../lib/btprint');
+      await BTPrint.printReceipt(receiptData);
+    } catch (e) {
+      alert('Print failed: ' + (e.message || e));
+    }
+  }
+
 
   return (
     <>
@@ -95,9 +149,42 @@ export default function Staff() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {btAvail && (
+              <button
+                onClick={btConnected ? handleBtDisconnect : handleBtConnect}
+                disabled={btConnecting}
+                className="btn btn-ghost btn-sm"
+                style={{ width: 'auto', padding: '6px 12px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700 }}>
+                {btConnecting ? '…' : btConnected ? `🖨 ${btName}` : '🖨 Printer'}
+              </button>
+            )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
+
+        {showPicker && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+            <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', maxWidth: 480 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Select Printer</div>
+              {btDevices.length === 0 ? (
+                <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+                  No paired Bluetooth devices found.{'\n'}Pair your printer in Android Settings → Bluetooth first, then try again.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                  {btDevices.map(d => (
+                    <button key={d.address} onClick={() => selectDevice(d)}
+                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name || 'Unknown Device'}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{d.address}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => setShowPicker(false)} className="btn btn-ghost btn-sm" style={{ width: '100%' }}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         <div className="tab-bar" style={{ overflowX: 'auto' }}>
           {TABS.map(t => (
@@ -109,7 +196,7 @@ export default function Staff() {
         </div>
 
         <div style={{ padding: '16px' }}>
-          {tab === 'sale'        && <SaleTab products={products} phones={phones} />}
+          {tab === 'sale'        && <SaleTab products={products} phones={phones} btConnected={btConnected} onPrint={onPrintReceipt} />}
           {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} />}
           {tab === 'repair'      && <RepairTab />}
           {tab === 'stock'       && <StockTab products={products} />}
@@ -206,7 +293,7 @@ function PayButton({ method, selected, onClick }) {
 // ─── SALE TAB ────────────────────────────────────────────────────────────────
 const emptyItem = () => ({ type: 'accessory', productId: '', phoneId: '', qty: 1, price: 0, discount: '', name: '' });
 
-function SaleTab({ products, phones }) {
+function SaleTab({ products, phones, btConnected, onPrint }) {
   const [items, setItems]             = useState([emptyItem(), emptyItem()]);
   const [payment, setPayment]         = useState(null);
   const [creditCustomer, setCreditCustomer] = useState('');
@@ -313,20 +400,38 @@ function SaleTab({ products, phones }) {
     const saleData = await res.json().catch(() => ({}));
     setSaving(false);
     if (res.ok) {
-      setDone(true);
+      const receiptItems = activeItems.map(i => ({
+        name:  i.name || '?',
+        qty:   i.type === 'phone' ? 1 : Number(i.qty),
+        price: Number(i.price),
+      }));
+      setDone({ items: receiptItems, total: grandTotal, payment, discount: totalDiscount });
       setTimeout(() => {
         setItems([emptyItem(), emptyItem()]);
         setPayment(null);
         setCreditCustomer('');
         setPayError(false);
         setDone(false);
-      }, 1800);
+      }, 5000);
     } else {
       alert(saleData.error || 'Error saving sale. Try again.');
     }
   }
 
-  if (done) return <SuccessScreen emoji="✅" title="Sale Saved!" sub={`Total: Rs ${grandTotal.toFixed(0)}`} />;
+  if (done) return (
+    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>Sale Saved!</div>
+      <div style={{ color: 'var(--muted)', marginTop: 8 }}>Total: Rs {done.total?.toFixed(0)}</div>
+      {btConnected && onPrint && (
+        <button onClick={() => onPrint(done)}
+          className="btn btn-ghost"
+          style={{ marginTop: 24, width: '100%', padding: '12px 0', fontSize: 15, fontWeight: 700 }}>
+          🖨 Print Receipt
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div>

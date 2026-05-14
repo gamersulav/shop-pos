@@ -1,0 +1,9 @@
+{
+  "appId": "com.univercell.pos",
+  "appName": "Shop POS",
+  "webDir": "public",
+  "server": {
+    "url": "https://shop-pos-puce.vercel.app",
+    "cleartext": false
+  }
+}
