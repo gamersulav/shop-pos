@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import * as Printer from '../lib/printer';
+function parseCode(raw) {
+  const code = String(raw).trim().toUpperCase();
+  if (/^PH\d+$/.test(code)) return { type: 'phone',   id: parseInt(code.slice(2)) };
+  if (/^P\d+$/.test(code))  return { type: 'product', id: parseInt(code.slice(1)) };
+  return null;
+}
 
 async function compressImage(file, maxPx = 540, quality = 0.58) {
   return new Promise(resolve => {
@@ -61,9 +66,6 @@ export default function Staff() {
   const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
-  const [printerName, setPrinterName] = useState(null);
-  const [connecting, setConnecting]   = useState(false);
-  const [testing, setTesting]         = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -85,29 +87,6 @@ export default function Staff() {
     router.push('/');
   }
 
-  async function handlePrinter() {
-    if (printerName) {
-      Printer.bleDisconnect();
-      setPrinterName(null);
-      return;
-    }
-    if (!Printer.bleSupported()) {
-      alert('Web Bluetooth is not available.\nOpen this page in Chrome on Android.');
-      return;
-    }
-    setConnecting(true);
-    try {
-      const name = await Printer.bleConnect(() => setPrinterName(null)); // disconnect callback
-      setPrinterName(name || 'Printer');
-    } catch (e) {
-      const msg = String(e.message || e);
-      if (!msg.toLowerCase().includes('cancel')) {
-        alert('Printer connect failed:\n' + msg);
-      }
-    } finally {
-      setConnecting(false);
-    }
-  }
 
   return (
     <>
@@ -116,42 +95,6 @@ export default function Staff() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button
-              onClick={handlePrinter}
-              disabled={connecting}
-              style={{
-                width: 'auto', padding: '6px 12px', borderRadius: 8, border: '1.5px solid',
-                borderColor: printerName ? 'var(--green)' : 'var(--border)',
-                background: printerName ? 'rgba(0,230,118,0.1)' : 'transparent',
-                color: printerName ? 'var(--green)' : 'var(--muted)',
-                cursor: connecting ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
-              }}>
-              {connecting ? '🔄 Connecting…' : printerName ? `🖨 ${printerName}` : '🖨 Connect'}
-            </button>
-            {printerName && (
-              <button
-                disabled={testing}
-                onClick={async () => {
-                  setTesting(true);
-                  const uuid = Printer.bleCharUUID();
-                  try {
-                    await Printer.testPrint();
-                    alert(
-                      'Probe done! (~25 sec)\n\n' +
-                      'Which number(s) printed?\n' +
-                      '1 plain text  2 ESC/POS text\n' +
-                      '3 raster      4 raster-inv\n' +
-                      '5 LuckPrinter 6 AiYin\n' +
-                      '7 ffe1 text   8 ffe1 raster\n\n' +
-                      'Char: ' + (uuid || '?')
-                    );
-                  } catch (e) { alert('Test failed: ' + (e.message || e) + '\nChar: ' + (uuid || 'unknown')); }
-                  finally { setTesting(false); }
-                }}
-                style={{ width: 'auto', padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'rgba(255,171,0,0.1)', color: testing ? 'var(--muted)' : 'var(--amber)', cursor: testing ? 'default' : 'pointer', fontSize: 12, fontWeight: 700 }}>
-                {testing ? '…' : 'Test'}
-              </button>
-            )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
@@ -312,7 +255,7 @@ function SaleTab({ products, phones }) {
   }
 
   function handleBarcode(raw) {
-    const parsed = Printer.parseCode(raw);
+    const parsed = parseCode(raw);
     if (!parsed) { alert(`Unrecognised barcode: ${raw}`); return; }
 
     if (parsed.type === 'product') {
@@ -370,22 +313,6 @@ function SaleTab({ products, phones }) {
     const saleData = await res.json().catch(() => ({}));
     setSaving(false);
     if (res.ok) {
-      try {
-        await Printer.printReceipt({
-          id: saleData.id,
-          items: activeItems.map(i => ({
-            name:     i.name,
-            qty:      i.type === 'phone' ? 1 : i.qty,
-            price:    i.price,
-            discount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
-          })),
-          total: grandTotal,
-          payment,
-          creditCustomer,
-        });
-      } catch (e) {
-        alert('Receipt print failed: ' + (e.message || e));
-      }
       setDone(true);
       setTimeout(() => {
         setItems([emptyItem(), emptyItem()]);
@@ -583,19 +510,6 @@ function PhonesTab({ onPhoneSold }) {
   const [shareToast, setShareToast]       = useState('');
   const [shareMode, setShareMode]         = useState(false);
   const [shareSelection, setShareSelection] = useState(new Set());
-  const [printingId, setPrintingId] = useState(null);
-
-  async function printLabel(p) {
-    setPrintingId(p.id);
-    try {
-      await Printer.printPhoneLabel(p);
-    } catch (e) {
-      alert('Print failed: ' + (e.message || e));
-    } finally {
-      setPrintingId(null);
-    }
-  }
-
   useEffect(() => { loadPhones(); }, []);
 
   function loadPhones() { fetch('/api/phones').then(r => r.json()).then(setPhones); }
@@ -950,10 +864,6 @@ function PhonesTab({ onPhoneSold }) {
                 <button onClick={() => sharePhone(p)}
                   style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
                   📤 Share
-                </button>
-                <button onClick={() => printLabel(p)} disabled={printingId === p.id}
-                  style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: printingId === p.id ? 'var(--muted)' : 'var(--fg)', cursor: printingId === p.id ? 'default' : 'pointer', fontSize: 13, fontWeight: 700 }}>
-                  {printingId === p.id ? '…' : '🖨 Label'}
                 </button>
                 <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
                   Sell via 💰 Sale tab
@@ -1437,19 +1347,6 @@ function AccessoriesTab({ products, reload }) {
   const [form, setForm]       = useState({ name: '', selling_price: '', photo: '' });
   const [saving, setSaving]   = useState(false);
   const [done, setDone]       = useState('');
-  const [printingId, setPrintingId] = useState(null);
-
-  async function printLabel(p) {
-    setPrintingId(p.id);
-    try {
-      await Printer.printProductLabel(p);
-    } catch (e) {
-      alert('Print failed: ' + (e.message || e));
-    } finally {
-      setPrintingId(null);
-    }
-  }
-
   async function handlePhoto(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1521,14 +1418,6 @@ function AccessoriesTab({ products, reload }) {
                 </div>
               </div>
               {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <button
-                onClick={() => printLabel(p)}
-                disabled={printingId === p.id}
-                style={{ width: '100%', padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: printingId === p.id ? 'var(--muted)' : 'var(--fg)', cursor: printingId === p.id ? 'default' : 'pointer', fontSize: 13, fontWeight: 700 }}>
-                {printingId === p.id ? 'Opening print…' : '🖨 Print Label'}
-              </button>
             </div>
           </div>
         ))}
