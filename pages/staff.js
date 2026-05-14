@@ -63,6 +63,7 @@ export default function Staff() {
   const [phones, setPhones]     = useState([]);
   const [printerName, setPrinterName] = useState(null);
   const [connecting, setConnecting]   = useState(false);
+  const [testing, setTesting]         = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -129,12 +130,15 @@ export default function Staff() {
             </button>
             {printerName && (
               <button
+                disabled={testing}
                 onClick={async () => {
-                  try { await Printer.testPrint(); alert('Test print sent!'); }
+                  setTesting(true);
+                  try { await Printer.testPrint(); alert('Test print sent! Paper should come out.'); }
                   catch (e) { alert('Test failed: ' + (e.message || e)); }
+                  finally { setTesting(false); }
                 }}
-                style={{ width: 'auto', padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'rgba(255,171,0,0.1)', color: 'var(--amber)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                Test
+                style={{ width: 'auto', padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'rgba(255,171,0,0.1)', color: testing ? 'var(--muted)' : 'var(--amber)', cursor: testing ? 'default' : 'pointer', fontSize: 12, fontWeight: 700 }}>
+                {testing ? '…' : 'Test'}
               </button>
             )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
