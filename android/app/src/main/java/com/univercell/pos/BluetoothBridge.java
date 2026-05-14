@@ -96,13 +96,25 @@ public class BluetoothBridge {
                 if (a == null) { cb(cbId, null, "Bluetooth not supported"); return; }
                 closeSocket();
                 BluetoothDevice device = a.getRemoteDevice(address);
-                BluetoothSocket s = device.createRfcommSocketToServiceRecord(SPP);
-                s.connect();
+                // Insecure RFCOMM works with budget printers that don't support
+                // Bluetooth secure channels (HC-05 / older printer chips).
+                // Fall back to reflection-based channel 1 if insecure also fails.
+                BluetoothSocket s = null;
+                try {
+                    s = device.createInsecureRfcommSocketToServiceRecord(SPP);
+                    s.connect();
+                } catch (Exception e1) {
+                    try { if (s != null) s.close(); } catch (Exception ignored) {}
+                    java.lang.reflect.Method m =
+                        device.getClass().getMethod("createRfcommSocket", int.class);
+                    s = (BluetoothSocket) m.invoke(device, 1);
+                    s.connect();
+                }
                 socket = s;
                 out = s.getOutputStream();
                 cb(cbId, "ok", null);
             } catch (Exception e) {
-                cb(cbId, null, e.getMessage());
+                cb(cbId, null, e.getMessage() != null ? e.getMessage() : "connect failed");
             }
         }).start();
     }
