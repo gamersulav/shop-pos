@@ -76,12 +76,24 @@ export default function Staff() {
   const [btAvail,      setBtAvail]      = useState(false);
 
   useEffect(() => {
-    setBtAvail(!!window.Capacitor?.isNativePlatform?.());
+    // Capacitor injects its bridge after page load, so poll until available
+    let attempts = 0;
+    const id = setInterval(() => {
+      attempts++;
+      if (window.Capacitor?.isNativePlatform?.()) {
+        setBtAvail(true);
+        clearInterval(id);
+      } else if (attempts >= 25) {
+        clearInterval(id);
+      }
+    }, 200);
+
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
     });
     loadProducts();
     loadPhones();
+    return () => clearInterval(id);
   }, []);
 
   function loadProducts() { fetch('/api/products').then(r => r.json()).then(setProducts); }
