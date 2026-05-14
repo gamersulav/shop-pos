@@ -91,16 +91,17 @@ export default function Staff() {
       return;
     }
     if (!Printer.bleSupported()) {
-      alert('Web Bluetooth is not available.\nUse Chrome on Android (not Firefox or Samsung Browser).');
+      alert('Web Bluetooth is not available.\nOpen this page in Chrome on Android.');
       return;
     }
     setConnecting(true);
     try {
-      const name = await Printer.bleConnect();
+      const name = await Printer.bleConnect(() => setPrinterName(null)); // disconnect callback
       setPrinterName(name || 'Printer');
     } catch (e) {
-      if (!String(e).includes('cancelled') && !String(e).includes('User cancelled')) {
-        alert('Could not connect: ' + e.message);
+      const msg = String(e.message || e);
+      if (!msg.toLowerCase().includes('cancel')) {
+        alert('Printer connect failed:\n' + msg);
       }
     } finally {
       setConnecting(false);
@@ -345,7 +346,7 @@ function SaleTab({ products, phones }) {
     setSaving(false);
     if (res.ok) {
       try {
-        Printer.printReceipt({
+        await Printer.printReceipt({
           id: saleData.id,
           items: activeItems.map(i => ({
             name:     i.name,
@@ -358,7 +359,7 @@ function SaleTab({ products, phones }) {
           creditCustomer,
         });
       } catch (e) {
-        console.error('Print failed:', e);
+        alert('Receipt print failed: ' + (e.message || e));
       }
       setDone(true);
       setTimeout(() => {
@@ -561,7 +562,13 @@ function PhonesTab({ onPhoneSold }) {
 
   async function printLabel(p) {
     setPrintingId(p.id);
-    try { await Printer.printPhoneLabel(p); } finally { setPrintingId(null); }
+    try {
+      await Printer.printPhoneLabel(p);
+    } catch (e) {
+      alert('Print failed: ' + (e.message || e));
+    } finally {
+      setPrintingId(null);
+    }
   }
 
   useEffect(() => { loadPhones(); }, []);
@@ -1409,7 +1416,13 @@ function AccessoriesTab({ products, reload }) {
 
   async function printLabel(p) {
     setPrintingId(p.id);
-    try { await Printer.printProductLabel(p); } finally { setPrintingId(null); }
+    try {
+      await Printer.printProductLabel(p);
+    } catch (e) {
+      alert('Print failed: ' + (e.message || e));
+    } finally {
+      setPrintingId(null);
+    }
   }
 
   async function handlePhoto(e) {
