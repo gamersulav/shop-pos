@@ -127,6 +127,16 @@ export default function Staff() {
               }}>
               {connecting ? '🔄 Connecting…' : printerName ? `🖨 ${printerName}` : '🖨 Connect'}
             </button>
+            {printerName && (
+              <button
+                onClick={async () => {
+                  try { await Printer.testPrint(); alert('Test print sent!'); }
+                  catch (e) { alert('Test failed: ' + (e.message || e)); }
+                }}
+                style={{ width: 'auto', padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'rgba(255,171,0,0.1)', color: 'var(--amber)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                Test
+              </button>
+            )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
