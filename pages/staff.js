@@ -61,6 +61,9 @@ export default function Staff() {
   const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
+  const [printerName, setPrinterName] = useState(null);
+  const [connecting, setConnecting]   = useState(false);
+
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
@@ -81,6 +84,29 @@ export default function Staff() {
     router.push('/');
   }
 
+  async function handlePrinter() {
+    if (printerName) {
+      Printer.bleDisconnect();
+      setPrinterName(null);
+      return;
+    }
+    if (!Printer.bleSupported()) {
+      alert('Web Bluetooth is not available.\nUse Chrome on Android (not Firefox or Samsung Browser).');
+      return;
+    }
+    setConnecting(true);
+    try {
+      const name = await Printer.bleConnect();
+      setPrinterName(name || 'Printer');
+    } catch (e) {
+      if (!String(e).includes('cancelled') && !String(e).includes('User cancelled')) {
+        alert('Could not connect: ' + e.message);
+      }
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   return (
     <>
       <Head><title>Staff — Shop POS</title></Head>
@@ -88,6 +114,18 @@ export default function Staff() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
           <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              onClick={handlePrinter}
+              disabled={connecting}
+              style={{
+                width: 'auto', padding: '6px 12px', borderRadius: 8, border: '1.5px solid',
+                borderColor: printerName ? 'var(--green)' : 'var(--border)',
+                background: printerName ? 'rgba(0,230,118,0.1)' : 'transparent',
+                color: printerName ? 'var(--green)' : 'var(--muted)',
+                cursor: connecting ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
+              }}>
+              {connecting ? '🔄 Connecting…' : printerName ? `🖨 ${printerName}` : '🖨 Connect'}
+            </button>
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
