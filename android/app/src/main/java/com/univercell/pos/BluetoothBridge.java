@@ -95,7 +95,6 @@ public class BluetoothBridge {
                 closeSocket();
                 BluetoothDevice device = a.getRemoteDevice(address);
                 BluetoothSocket s = device.createRfcommSocketToServiceRecord(SPP);
-                a.cancelDiscovery();
                 s.connect();
                 socket = s;
                 out = s.getOutputStream();
