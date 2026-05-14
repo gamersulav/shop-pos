@@ -73,9 +73,10 @@ export default function Staff() {
   const [btConnecting, setBtConnecting] = useState(false);
   const [showPicker,   setShowPicker]   = useState(false);
   const [btDevices,    setBtDevices]    = useState([]);
-  const btAvail = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+  const [btAvail,      setBtAvail]      = useState(false);
 
   useEffect(() => {
+    setBtAvail(!!window.Capacitor?.isNativePlatform?.());
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
     });
