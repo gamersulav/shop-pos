@@ -137,12 +137,13 @@ export default function Staff() {
                   try {
                     await Printer.testPrint();
                     alert(
-                      'Probe sent! (~10 sec total)\n\n' +
-                      'Watch the printer — did it print A, B, or C?\n' +
-                      '  A = ESC/POS text works\n' +
-                      '  B = ESC/POS raster works\n' +
-                      '  C = AiYin raster works\n\n' +
-                      'Char UUID: ' + (uuid || 'unknown')
+                      'Probe done! (~25 sec)\n\n' +
+                      'Which number(s) printed?\n' +
+                      '1 plain text  2 ESC/POS text\n' +
+                      '3 raster      4 raster-inv\n' +
+                      '5 LuckPrinter 6 AiYin\n' +
+                      '7 ffe1 text   8 ffe1 raster\n\n' +
+                      'Char: ' + (uuid || '?')
                     );
                   } catch (e) { alert('Test failed: ' + (e.message || e) + '\nChar: ' + (uuid || 'unknown')); }
                   finally { setTesting(false); }
