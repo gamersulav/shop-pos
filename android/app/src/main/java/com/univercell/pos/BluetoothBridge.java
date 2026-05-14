@@ -22,6 +22,7 @@ import android.util.Base64;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.UUID;
 
@@ -91,29 +92,36 @@ public class BluetoothBridge {
     @JavascriptInterface
     public void connect(String address, String cbId) {
         new Thread(() -> {
+            BluetoothSocket s = null;
             try {
                 BluetoothAdapter a = adapter();
                 if (a == null) { cb(cbId, null, "Bluetooth not supported"); return; }
                 closeSocket();
                 BluetoothDevice device = a.getRemoteDevice(address);
-                // Insecure RFCOMM works with budget printers that don't support
-                // Bluetooth secure channels (HC-05 / older printer chips).
-                // Fall back to reflection-based channel 1 if insecure also fails.
-                BluetoothSocket s = null;
+
+                // 1st attempt: reflection socket on channel 1 — most reliable on modern Android
+                // (bypasses SDP lookup and security negotiation that breaks on Android 12+)
                 try {
-                    s = device.createInsecureRfcommSocketToServiceRecord(SPP);
+                    Method m = device.getClass().getMethod("createRfcommSocket", int.class);
+                    s = (BluetoothSocket) m.invoke(device, 1);
                     s.connect();
                 } catch (Exception e1) {
                     try { if (s != null) s.close(); } catch (Exception ignored) {}
-                    java.lang.reflect.Method m =
-                        device.getClass().getMethod("createRfcommSocket", int.class);
-                    s = (BluetoothSocket) m.invoke(device, 1);
+                    // 2nd attempt: insecure SPP via UUID
+                    s = device.createInsecureRfcommSocketToServiceRecord(SPP);
                     s.connect();
                 }
+
+                // Critical on Android 12+: give the BT stack time to open the data channel
+                Thread.sleep(400);
+
                 socket = s;
+                // getInputStream() activates full-duplex on some Android/Samsung versions
+                socket.getInputStream();
                 out = s.getOutputStream();
                 cb(cbId, "ok", null);
             } catch (Exception e) {
+                try { if (s != null) s.close(); } catch (Exception ignored) {}
                 cb(cbId, null, e.getMessage() != null ? e.getMessage() : "connect failed");
             }
         }).start();
@@ -125,8 +133,17 @@ public class BluetoothBridge {
             try {
                 if (out == null) { cb(cbId, null, "Not connected to printer"); return; }
                 byte[] data = Base64.decode(b64, Base64.DEFAULT);
-                out.write(data);
+                // Write in 20-byte chunks with 20ms gaps — forces Android BT stack to
+                // actually transmit each chunk instead of indefinitely buffering.
+                int off = 0;
+                while (off < data.length) {
+                    int len = Math.min(20, data.length - off);
+                    out.write(data, off, len);
+                    Thread.sleep(20);
+                    off += len;
+                }
                 out.flush();
+                Thread.sleep(200); // Wait for final chunk to physically leave the radio
                 cb(cbId, "ok", null);
             } catch (Exception e) {
                 cb(cbId, null, e.getMessage() != null ? e.getMessage() : "write error");
