@@ -78,24 +78,14 @@ export default function Staff() {
   const [btError,      setBtError]      = useState('');
 
   useEffect(() => {
-    // Capacitor injects its bridge after page load — poll at 50ms until ready
-    let attempts = 0;
-    const id = setInterval(() => {
-      attempts++;
-      if (window.Capacitor?.isNativePlatform?.()) {
-        setBtAvail(true);
-        clearInterval(id);
-      } else if (attempts >= 40) {
-        clearInterval(id);
-      }
-    }, 50);
+    // window.androidBridge is Capacitor 4's Java interface set up before any JS runs
+    if (window.androidBridge) setBtAvail(true);
 
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
     });
     loadProducts();
     loadPhones();
-    return () => clearInterval(id);
   }, []);
 
   function loadProducts() { fetch('/api/products').then(r => r.json()).then(setProducts); }
