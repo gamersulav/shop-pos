@@ -78,8 +78,8 @@ export default function Staff() {
   const [btError,      setBtError]      = useState('');
 
   useEffect(() => {
-    // window.androidBridge is Capacitor 4's Java interface set up before any JS runs
-    if (window.androidBridge) setBtAvail(true);
+    // window.ShopBT is registered via addJavascriptInterface before any JS runs
+    if (typeof window.ShopBT !== 'undefined') setBtAvail(true);
 
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) router.push('/');
@@ -104,6 +104,7 @@ export default function Staff() {
     setBtConnecting(true);
     setBtError('');
     try {
+      await BTPrint.requestPermissions();
       const devices = await BTPrint.listPaired();
       setBtDevices(devices);
       setShowPicker(true);
