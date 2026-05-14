@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import * as BTPrint from '../lib/btprint';
 function parseCode(raw) {
   const code = String(raw).trim().toUpperCase();
   if (/^PH\d+$/.test(code)) return { type: 'phone',   id: parseInt(code.slice(2)) };
@@ -74,6 +75,7 @@ export default function Staff() {
   const [showPicker,   setShowPicker]   = useState(false);
   const [btDevices,    setBtDevices]    = useState([]);
   const [btAvail,      setBtAvail]      = useState(false);
+  const [btError,      setBtError]      = useState('');
 
   useEffect(() => {
     // Capacitor injects its bridge after page load — poll at 50ms until ready
@@ -110,20 +112,19 @@ export default function Staff() {
 
   async function handleBtConnect() {
     setBtConnecting(true);
+    setBtError('');
     try {
-      const BTPrint = await import('../lib/btprint');
       const devices = await BTPrint.listPaired();
       setBtDevices(devices);
       setShowPicker(true);
     } catch (e) {
-      alert('Bluetooth error: ' + (e.message || e));
+      setBtError(e.message || String(e));
     } finally {
       setBtConnecting(false);
     }
   }
 
   async function handleBtDisconnect() {
-    const BTPrint = await import('../lib/btprint');
     await BTPrint.disconnect();
     setBtConnected(false);
     setBtName('');
@@ -132,13 +133,13 @@ export default function Staff() {
   async function selectDevice(device) {
     setShowPicker(false);
     setBtConnecting(true);
+    setBtError('');
     try {
-      const BTPrint = await import('../lib/btprint');
       await BTPrint.connect(device.address);
       setBtConnected(true);
       setBtName(device.name || device.address);
     } catch (e) {
-      alert('Connect failed: ' + (e.message || e));
+      setBtError(e.message || String(e));
     } finally {
       setBtConnecting(false);
     }
@@ -146,28 +147,25 @@ export default function Staff() {
 
   async function onPrintReceipt(receiptData) {
     try {
-      const BTPrint = await import('../lib/btprint');
       await BTPrint.printReceipt(receiptData);
     } catch (e) {
-      alert('Print failed: ' + (e.message || e));
+      setBtError(e.message || String(e));
     }
   }
 
   async function onPrintProductLabel(product) {
     try {
-      const BTPrint = await import('../lib/btprint');
       await BTPrint.printProductLabel(product);
     } catch (e) {
-      alert('Print failed: ' + (e.message || e));
+      setBtError(e.message || String(e));
     }
   }
 
   async function onPrintPhoneLabel(phone) {
     try {
-      const BTPrint = await import('../lib/btprint');
       await BTPrint.printPhoneLabel(phone);
     } catch (e) {
-      alert('Print failed: ' + (e.message || e));
+      setBtError(e.message || String(e));
     }
   }
 
@@ -191,6 +189,12 @@ export default function Staff() {
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
           </div>
         </div>
+
+        {btError ? (
+          <div onClick={() => setBtError('')} style={{ background: 'var(--red)', color: '#fff', fontSize: 12, padding: '8px 16px', cursor: 'pointer' }}>
+            ⚠ {btError} (tap to dismiss)
+          </div>
+        ) : null}
 
         {showPicker && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
