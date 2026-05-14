@@ -18,6 +18,8 @@ import androidx.core.content.ContextCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import android.util.Base64;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Set;
@@ -106,17 +108,16 @@ public class BluetoothBridge {
     }
 
     @JavascriptInterface
-    public void write(String chars, String cbId) {
+    public void write(String b64, String cbId) {
         new Thread(() -> {
             try {
                 if (out == null) { cb(cbId, null, "Not connected to printer"); return; }
-                byte[] data = new byte[chars.length()];
-                for (int i = 0; i < chars.length(); i++) data[i] = (byte) chars.charAt(i);
+                byte[] data = Base64.decode(b64, Base64.DEFAULT);
                 out.write(data);
                 out.flush();
                 cb(cbId, "ok", null);
             } catch (Exception e) {
-                cb(cbId, null, e.getMessage());
+                cb(cbId, null, e.getMessage() != null ? e.getMessage() : "write error");
             }
         }).start();
     }
