@@ -133,8 +133,18 @@ export default function Staff() {
                 disabled={testing}
                 onClick={async () => {
                   setTesting(true);
-                  try { await Printer.testPrint(); alert('Test print sent! Paper should come out.'); }
-                  catch (e) { alert('Test failed: ' + (e.message || e)); }
+                  const uuid = Printer.bleCharUUID();
+                  try {
+                    await Printer.testPrint();
+                    alert(
+                      'Probe sent! (~10 sec total)\n\n' +
+                      'Watch the printer — did it print A, B, or C?\n' +
+                      '  A = ESC/POS text works\n' +
+                      '  B = ESC/POS raster works\n' +
+                      '  C = AiYin raster works\n\n' +
+                      'Char UUID: ' + (uuid || 'unknown')
+                    );
+                  } catch (e) { alert('Test failed: ' + (e.message || e) + '\nChar: ' + (uuid || 'unknown')); }
                   finally { setTesting(false); }
                 }}
                 style={{ width: 'auto', padding: '6px 10px', borderRadius: 8, border: '1.5px solid var(--amber)', background: 'rgba(255,171,0,0.1)', color: testing ? 'var(--muted)' : 'var(--amber)', cursor: testing ? 'default' : 'pointer', fontSize: 12, fontWeight: 700 }}>
