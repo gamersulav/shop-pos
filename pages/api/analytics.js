@@ -166,7 +166,7 @@ export default async function handler(req, res) {
     SELECT CAST(strftime('%m', expense_date) AS INTEGER) as month,
            COALESCE(SUM(amount), 0) as total
     FROM expenses
-    WHERE strftime('%Y', expense_date) = ?
+    WHERE strftime('%Y', expense_date) = ? AND category = 'expense'
     GROUP BY month
   `, [year]);
 
@@ -175,6 +175,7 @@ export default async function handler(req, res) {
     SELECT strftime('%Y', expense_date) as yr,
            COALESCE(SUM(amount), 0) as total
     FROM expenses
+    WHERE category = 'expense'
     GROUP BY yr ORDER BY yr DESC
   `);
 

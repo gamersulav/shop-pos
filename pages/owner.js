@@ -1693,7 +1693,7 @@ function OwnerExpensesTab() {
   const [expenses, setExpenses] = useState([]);
   const [period, setPeriod]     = useState('month'); // 'today' | 'month' | 'all'
   const [type, setType]         = useState('all');   // 'all' | 'staff' | 'owner'
-  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash' });
+  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash', category: 'expense' });
   const [saving, setSaving]     = useState(false);
   const [showAdd, setShowAdd]   = useState(false);
   const [delConfirm, setDelConfirm] = useState(null);
@@ -1717,10 +1717,10 @@ function OwnerExpensesTab() {
     await fetch('/api/expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: form.description.trim(), amount: Number(form.amount), payment_method: form.payment_method }),
+      body: JSON.stringify({ description: form.description.trim(), amount: Number(form.amount), payment_method: form.payment_method, category: form.category }),
     });
     setSaving(false);
-    setForm({ description: '', amount: '', payment_method: 'Cash' });
+    setForm({ description: '', amount: '', payment_method: 'Cash', category: 'expense' });
     setShowAdd(false);
     load();
   }
@@ -1751,6 +1751,24 @@ function OwnerExpensesTab() {
           <datalist id="exp-owner-sugg">
             {SUGGESTIONS.map(s => <option key={s} value={s} />)}
           </datalist>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>CATEGORY</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[
+                { val: 'expense',      label: 'Operating Expense',        desc: 'Shows in dashboard & analytics', color: 'var(--red)' },
+                { val: 'cogs',         label: 'Cost of Goods Sold',       desc: 'Deducted from cash only',        color: 'var(--amber)' },
+                { val: 'service_cost', label: 'Cost of Outsourcing',      desc: 'Deducted from cash only',        color: 'var(--purple)' },
+              ].map(({ val, label, desc, color }) => (
+                <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${form.category === val ? color : 'var(--border)'}`, background: form.category === val ? `${color}11` : 'transparent', cursor: 'pointer' }}>
+                  <input type="radio" name="owner-cat" value={val} checked={form.category === val} onChange={() => setForm(f => ({ ...f, category: val }))} style={{ accentColor: color }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: form.category === val ? color : 'var(--text)' }}>{label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
           <div style={{ marginBottom: 10 }}>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>DESCRIPTION</label>
             <input list="exp-owner-sugg" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Rent, Salary…" />
@@ -1835,6 +1853,12 @@ function OwnerExpensesTab() {
                     {pm === 'Bank Transfer' ? 'Bank' : pm}
                   </span>
                 ); })()}
+                {(() => {
+                  const cat = e.category || 'expense';
+                  if (cat === 'cogs') return <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: 'rgba(255,176,32,0.12)', color: 'var(--amber)' }}>COGS</span>;
+                  if (cat === 'service_cost') return <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: 'rgba(176,96,255,0.12)', color: 'var(--purple)' }}>OUTSOURCING</span>;
+                  return null;
+                })()}
                 {e.expense_date}
               </div>
             </div>

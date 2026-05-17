@@ -79,11 +79,11 @@ export default async function handler(req, res) {
   // ── Expenses ──────────────────────────────────────────────────────────────
   const todayExp = await db.queryOne(`
     SELECT COALESCE(SUM(amount),0) as total FROM expenses
-    WHERE expense_date = ${NPT_TODAY}`);
+    WHERE expense_date = ${NPT_TODAY} AND category = 'expense'`);
 
   const monthlyExp = await db.queryOne(`
     SELECT COALESCE(SUM(amount),0) as total FROM expenses
-    WHERE ${nptMonth('expense_date')} = ${NPT_MONTH}`);
+    WHERE ${nptMonth('expense_date')} = ${NPT_MONTH} AND category = 'expense'`);
 
   // ── Repairs ───────────────────────────────────────────────────────────────
   const repairStats = await db.query(

@@ -2060,7 +2060,7 @@ function StaffPaymentBalanceTab() {
 // ─── STAFF EXPENSES TAB ───────────────────────────────────────────────────────
 function StaffExpensesTab() {
   const [expenses, setExpenses] = useState([]);
-  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash' });
+  const [form, setForm]         = useState({ description: '', amount: '', payment_method: 'Cash', category: 'expense' });
   const [saving, setSaving]     = useState(false);
   const [loading, setLoading]   = useState(true);
   const [deleting, setDeleting] = useState(null);
@@ -2079,9 +2079,9 @@ function StaffExpensesTab() {
     if (!form.description.trim()) { alert('Enter a description'); return; }
     if (!form.amount || Number(form.amount) <= 0) { alert('Enter a valid amount'); return; }
     setSaving(true);
-    const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount), payment_method: form.payment_method }) });
+    const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount), payment_method: form.payment_method, category: form.category }) });
     setSaving(false);
-    if (r.ok) { setForm({ description: '', amount: '', payment_method: 'Cash' }); load(); }
+    if (r.ok) { setForm({ description: '', amount: '', payment_method: 'Cash', category: 'expense' }); load(); }
     else alert('Error saving. Try again.');
   }
 
@@ -2105,6 +2105,24 @@ function StaffExpensesTab() {
       <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Expenses</h2>
       <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Record Expense</div>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CATEGORY</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              { val: 'expense',      label: 'Operating Expense',   desc: 'Regular business expense',    color: 'var(--red)' },
+              { val: 'cogs',         label: 'Cost of Goods Sold',  desc: 'Purchase cost, not an expense', color: 'var(--amber)' },
+              { val: 'service_cost', label: 'Cost of Outsourcing', desc: 'Repair parts / outsourced work', color: 'var(--purple)' },
+            ].map(({ val, label, desc, color }) => (
+              <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${form.category === val ? color : 'var(--border)'}`, background: form.category === val ? `${color}11` : 'transparent', cursor: 'pointer' }}>
+                <input type="radio" name="staff-cat" value={val} checked={form.category === val} onChange={() => setForm(f => ({ ...f, category: val }))} style={{ accentColor: color }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: form.category === val ? color : 'var(--text)' }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{desc}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
         <div>
           <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>DESCRIPTION</label>
           <input type="text" placeholder="e.g. Staff Lunch" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} list="expense-suggestions" />
@@ -2163,14 +2181,17 @@ function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate }) {
   const [confirm, setConfirm] = useState(false);
   const pm = e.payment_method || 'Cash';
   const pmColor = CASH_COLORS[pm] || 'var(--muted)';
+  const cat = e.category || 'expense';
   return (
     <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{e.description}</div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: `${pmColor}22`, color: pmColor }}>
             {pm === 'Bank Transfer' ? 'Bank' : pm}
           </span>
+          {cat === 'cogs' && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: 'rgba(255,176,32,0.12)', color: 'var(--amber)' }}>COGS</span>}
+          {cat === 'service_cost' && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: 'rgba(176,96,255,0.12)', color: 'var(--purple)' }}>OUTSOURCING</span>}
           {showDate && fmtDate && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(e.expense_date)}</span>}
         </div>
       </div>

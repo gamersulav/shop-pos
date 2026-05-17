@@ -32,12 +32,13 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { description, amount, payment_method } = req.body;
+    const { description, amount, payment_method, category } = req.body;
     if (!description?.trim() || !amount) return res.status(400).json({ error: 'Description and amount required' });
     const method = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'].includes(payment_method) ? payment_method : 'Cash';
+    const cat = ['expense', 'cogs', 'service_cost'].includes(category) ? category : 'expense';
     const { lastId } = await db.run(
-      'INSERT INTO expenses (description, amount, entered_by, user_id, payment_method) VALUES (?,?,?,?,?)',
-      [description.trim(), Math.abs(Number(amount)), session.role, session.id, method]
+      'INSERT INTO expenses (description, amount, entered_by, user_id, payment_method, category) VALUES (?,?,?,?,?,?)',
+      [description.trim(), Math.abs(Number(amount)), session.role, session.id, method, cat]
     );
     return res.json({ ok: true, id: lastId });
   }
