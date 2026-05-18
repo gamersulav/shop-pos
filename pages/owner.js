@@ -148,21 +148,60 @@ function ChangePasswordModal({ onClose }) {
 // ─── DASHBOARD TAB ────────────────────────────────────────────────────────────
 function DashboardTab() {
   const [data, setData] = useState(null);
+  const [target, setTarget] = useState('');
+  const [targetInput, setTargetInput] = useState('');
+  const [targetSaved, setTargetSaved] = useState(false);
 
   useEffect(() => {
     fetch('/api/dashboard').then(r => r.json()).then(setData);
     const iv = setInterval(() => fetch('/api/dashboard').then(r => r.json()).then(setData), 30000);
+    fetch('/api/settings?key=daily_target').then(r => r.json()).then(d => {
+      if (d.value) { setTarget(d.value); setTargetInput(d.value); }
+    });
     return () => clearInterval(iv);
   }, []);
+
+  async function saveTarget() {
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'daily_target', value: targetInput }) });
+    setTarget(targetInput);
+    setTargetSaved(true);
+    setTimeout(() => setTargetSaved(false), 2000);
+  }
 
   if (!data) return <LoadingState />;
 
   const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit, inventoryValue, supplierDebt } = data;
 
   const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
+  const targetNum = Number(target) || 0;
+  const pct = targetNum > 0 ? Math.min(100, (today.revenue / targetNum) * 100) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Daily target */}
+      <div className="card" style={{ padding: '12px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: targetNum > 0 ? 8 : 0 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>Daily Target (Rs)</span>
+          <input value={targetInput} onChange={e => setTargetInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveTarget()}
+            type="number" placeholder="e.g. 20000"
+            style={{ width: 110, padding: '5px 8px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+          <button onClick={saveTarget} className="btn btn-green btn-sm" style={{ width: 'auto', padding: '5px 12px', fontSize: 12 }}>
+            {targetSaved ? '✓' : 'Set'}
+          </button>
+        </div>
+        {targetNum > 0 && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+              <span>Rs {Math.round(today.revenue).toLocaleString()} earned</span>
+              <span>{pct.toFixed(0)}% of Rs {targetNum.toLocaleString()}</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 4, background: 'var(--border)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--cyan)' : 'var(--amber)', borderRadius: 4, transition: 'width 0.3s' }} />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Today */}
       <div>

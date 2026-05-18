@@ -38,6 +38,7 @@ const TABS = [
   { id: 'credits',     label: '💳 Credits' },
   { id: 'balance',     label: '💰 Balance' },
   { id: 'expenses',    label: '💸 Expenses' },
+  { id: 'history',     label: '👤 History' },
 ];
 
 const PAYMENTS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'];
@@ -67,6 +68,7 @@ export default function Staff() {
   const [tab, setTab]           = useState('sale');
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
+  const [todayData, setTodayData] = useState(null);
 
   // Bluetooth printer state (only active inside the Android APK)
   const [btConnected,  setBtConnected]  = useState(false);
@@ -88,7 +90,14 @@ export default function Staff() {
     });
     loadProducts();
     loadPhones();
+    loadToday();
+    const iv = setInterval(loadToday, 60000);
+    return () => clearInterval(iv);
   }, []);
+
+  function loadToday() {
+    fetch('/api/today').then(r => r.ok ? r.json() : null).then(d => { if (d) setTodayData(d); });
+  }
 
   function loadProducts() { fetch('/api/products').then(r => r.json()).then(setProducts); }
   function loadPhones() {
@@ -246,6 +255,21 @@ export default function Staff() {
           ))}
         </div>
 
+        {todayData?.target > 0 && (() => {
+          const pct = Math.min(100, (todayData.revenue / todayData.target) * 100);
+          return (
+            <div style={{ padding: '6px 16px 4px', background: 'var(--card)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>
+                <span>Today: Rs {Math.round(todayData.revenue).toLocaleString()}</span>
+                <span>{pct.toFixed(0)}% of Rs {todayData.target.toLocaleString()}</span>
+              </div>
+              <div style={{ height: 5, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--cyan)' : 'var(--amber)', borderRadius: 3, transition: 'width 0.4s' }} />
+              </div>
+            </div>
+          );
+        })()}
+
         <div style={{ padding: '16px' }}>
           {tab === 'sale'        && <SaleTab products={products} phones={phones} btConnected={btConnected} onPrint={onPrintReceipt} />}
           {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} btConnected={btConnected} onPrintLabel={onPrintPhoneLabel} />}
@@ -256,6 +280,7 @@ export default function Staff() {
           {tab === 'credits'     && <CreditsTab />}
           {tab === 'balance'     && <StaffPaymentBalanceTab />}
           {tab === 'expenses'    && <StaffExpensesTab />}
+          {tab === 'history'     && <CustomerHistoryTab />}
         </div>
       </div>
     </>
@@ -2290,4 +2315,98 @@ function printRepairReceipt(r) {
   </body></html>`;
   const w = window.open('', '_blank', 'width=400,height=620');
   if (w) { w.document.write(html); w.document.close(); }
+}
+
+// ─── CUSTOMER HISTORY TAB ─────────────────────────────────────────────────────
+function CustomerHistoryTab() {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+
+  function search(val) {
+    setQ(val);
+    clearTimeout(timerRef.current);
+    if (val.trim().length < 2) { setResults(null); return; }
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`/api/customers/search?q=${encodeURIComponent(val.trim())}`);
+        if (r.ok) setResults(await r.json());
+      } finally { setLoading(false); }
+    }, 400);
+  }
+
+  const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
+
+  const hasResults = results && (results.repairs?.length > 0 || results.sales?.length > 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <input
+        value={q}
+        onChange={e => search(e.target.value)}
+        placeholder="Search by customer name or phone…"
+        style={{ fontSize: 15 }}
+        autoFocus
+      />
+
+      {loading && <div style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>Searching…</div>}
+
+      {results && !hasResults && !loading && (
+        <div style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', paddingTop: 20 }}>No records found for "{q}"</div>
+      )}
+
+      {results?.repairs?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>REPAIRS ({results.repairs.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {results.repairs.map(r => (
+              <div key={r.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{r.customer_name}</span>
+                  <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 8, background: repairStatusColors[r.status] + '22', color: repairStatusColors[r.status], fontWeight: 600 }}>{r.status}</span>
+                </div>
+                {r.customer_phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>📞 {r.customer_phone}</div>}
+                <div style={{ fontSize: 12, color: 'var(--text)' }}>{r.phone_model} — {r.issue}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)' }}>{fmtDate(r.created_at)}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--cyan)' }}>Rs {Number(r.customer_price).toLocaleString()}</span>
+                </div>
+                {Number(r.repair_discount) > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--red)' }}>Discount: -Rs {Number(r.repair_discount).toLocaleString()}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {results?.sales?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CREDIT SALES ({results.sales.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {results.sales.map(s => (
+              <div key={s.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{s.customer_name}</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: s.credit_cleared ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: s.credit_cleared ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                    {s.credit_cleared ? 'Cleared' : 'Pending'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.items}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)' }}>{fmtDate(s.created_at)}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--amber)' }}>Rs {Number(s.total_amount).toLocaleString()}</span>
+                </div>
+                {Number(s.credit_discount) > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--red)' }}>Discount on clear: -Rs {Number(s.credit_discount).toLocaleString()}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
