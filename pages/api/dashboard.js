@@ -127,6 +127,39 @@ export default async function handler(req, res) {
   const todayDiscounts   = buildDisc(dTodayItems, dTodayPhones, dTodayRepairs, dTodayCrSales, dTodayCrRepairs);
   const monthlyDiscounts = buildDisc(dMonthItems, dMonthPhones, dMonthRepairs, dMonthCrSales, dMonthCrRepairs);
 
+  // ── Daily profit (last 30 days) ───────────────────────────────────────────
+  const [dailySales, dailyRepairs, dailyExp30] = await Promise.all([
+    db.query(`
+      SELECT ${nptDate('s.created_at')} as day,
+             COALESCE(SUM(s.total_amount - COALESCE(s.credit_discount,0)),0) as revenue,
+             COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit
+      FROM sales s JOIN sale_items si ON si.sale_id=s.id
+      WHERE ${nptDate('s.created_at')} >= date('now','+5 hours','+45 minutes','-29 days')
+      GROUP BY day ORDER BY day DESC`),
+    db.query(`
+      SELECT ${nptDate('created_at')} as day,
+             COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit,
+             COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue
+      FROM repairs WHERE status IN ('Done','Delivered')
+      AND ${nptDate('created_at')} >= date('now','+5 hours','+45 minutes','-29 days')
+      GROUP BY day ORDER BY day DESC`),
+    db.query(`
+      SELECT expense_date as day, COALESCE(SUM(amount),0) as expenses
+      FROM expenses WHERE category='expense'
+      AND expense_date >= date('now','+5 hours','+45 minutes','-29 days')
+      GROUP BY day ORDER BY day DESC`),
+  ]);
+
+  // Merge into one map keyed by date string
+  const dayMap = {};
+  for (const r of dailySales)   { dayMap[r.day] = { ...dayMap[r.day], revenue: (dayMap[r.day]?.revenue||0)+Number(r.revenue), profit: (dayMap[r.day]?.profit||0)+Number(r.profit) }; }
+  for (const r of dailyRepairs) { dayMap[r.day] = { ...dayMap[r.day], revenue: (dayMap[r.day]?.revenue||0)+Number(r.revenue), profit: (dayMap[r.day]?.profit||0)+Number(r.profit) }; }
+  for (const r of dailyExp30)   { dayMap[r.day] = { ...dayMap[r.day], expenses: Number(r.expenses) }; }
+  const dailyProfit = Object.entries(dayMap)
+    .map(([day, v]) => ({ day, revenue: v.revenue||0, profit: (v.profit||0) - (v.expenses||0) }))
+    .sort((a, b) => b.day.localeCompare(a.day))
+    .slice(0, 30);
+
   const todayRev    = Number(today?.revenue    || 0) - Number(todayReturns?.revenue  || 0);
   const todayPro    = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit || 0) - Number(todayCreditDiscs?.total || 0);
   const rev         = Number(monthly?.revenue  || 0) - Number(monthlyReturns?.revenue || 0);
@@ -164,5 +197,6 @@ export default async function handler(req, res) {
     },
     todayDiscounts,
     monthlyDiscounts,
+    dailyProfit,
   });
 }

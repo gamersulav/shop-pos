@@ -157,7 +157,7 @@ function DashboardTab() {
 
   if (!data) return <LoadingState />;
 
-  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts } = data;
+  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit } = data;
 
   const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
 
@@ -189,6 +189,29 @@ function DashboardTab() {
           <StatCard val={monthly.sales}                            lbl="Sales"        color="var(--purple)" />
         </div>
       </div>
+
+      {/* Daily profit */}
+      {dailyProfit?.length > 0 && (
+        <div>
+          <SectionLabel>PROFIT BY DAY (LAST 30 DAYS)</SectionLabel>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {dailyProfit.map((row, i) => {
+              const d = new Date(row.day + 'T00:00:00');
+              const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const isPos = row.profit >= 0;
+              return (
+                <div key={row.day} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--muted)', minWidth: 56 }}>{label}</span>
+                  <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1, paddingLeft: 8 }}>Rs {Number(row.revenue).toLocaleString()}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: isPos ? 'var(--green)' : 'var(--red)' }}>
+                    {isPos ? '+' : ''}Rs {Number(row.profit).toLocaleString()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Discounts */}
       {(todayDiscounts?.total > 0 || monthlyDiscounts?.total > 0) && (
