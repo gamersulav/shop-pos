@@ -11,6 +11,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const rows = await db.query('SELECT * FROM products WHERE active = 1 ORDER BY name');
+    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
     if (session.role !== 'owner') {
       return res.json(rows.map(({ cost_price, ...p }) => p));
     }

@@ -10,6 +10,7 @@ export default async function handler(req, res) {
   const db = await getDb();
 
   if (req.method === 'GET') {
+    res.setHeader('Cache-Control', 's-maxage=20, stale-while-revalidate=60');
     if (session.role === 'owner') {
       const phones = await db.query(`
         SELECT up.*, COALESCE(si.item_discount, 0) as sale_discount
