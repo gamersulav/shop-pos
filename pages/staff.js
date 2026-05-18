@@ -50,6 +50,10 @@ const CASH_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
 const CASH_COLORS  = { Cash: 'var(--green)', eSewa: 'var(--cyan)', 'Bank Transfer': 'var(--purple)', Fonepay: 'var(--amber)' };
 const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
 
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let _showToast = null;
+function showToast(msg, type = 'error') { _showToast?.(msg, type); }
+
 const NPT = { timeZone: 'Asia/Kathmandu' };
 function nptToday() { return new Date(Date.now() + (5*60+45)*60*1000).toISOString().split('T')[0]; }
 function fmtDate(str, opts = {}) {
@@ -69,6 +73,8 @@ export default function Staff() {
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
   const [todayData, setTodayData] = useState(null);
+  const [toastState, setToastState] = useState(null);
+  const toastTimer = useRef(null);
 
   // Bluetooth printer state (only active inside the Android APK)
   const [btConnected,  setBtConnected]  = useState(false);
@@ -82,6 +88,13 @@ export default function Staff() {
   const [btPrinting,   setBtPrinting]   = useState(false);
 
   useEffect(() => {
+    // Register global toast function
+    _showToast = (msg, type) => {
+      clearTimeout(toastTimer.current);
+      setToastState({ msg, type });
+      toastTimer.current = setTimeout(() => setToastState(null), 2800);
+    };
+
     // window.ShopBT is registered via addJavascriptInterface before any JS runs
     if (typeof window.ShopBT !== 'undefined') setBtAvail(true);
 
@@ -92,17 +105,26 @@ export default function Staff() {
     loadPhones();
     loadToday();
     const iv = setInterval(loadToday, 60000);
-    return () => clearInterval(iv);
+    return () => { _showToast = null; clearTimeout(toastTimer.current); clearInterval(iv); };
   }, []);
 
   function loadToday() {
     fetch('/api/today').then(r => r.ok ? r.json() : null).then(d => { if (d) setTodayData(d); });
   }
 
-  function loadProducts() { fetch('/api/products').then(r => r.json()).then(setProducts); }
+  function loadProducts() {
+    try { const c = JSON.parse(localStorage.getItem('pos_products') || 'null'); if (c?.length) setProducts(c); } catch {}
+    fetch('/api/products').then(r => r.json()).then(data => {
+      setProducts(data);
+      try { localStorage.setItem('pos_products', JSON.stringify(data)); } catch {}
+    });
+  }
   function loadPhones() {
+    try { const c = JSON.parse(localStorage.getItem('pos_phones') || 'null'); if (c?.length) setPhones(c); } catch {}
     fetch('/api/phones').then(r => r.json()).then(data => {
-      setPhones((data || []).filter(p => p.status === 'available' && Number(p.selling_price) > 0));
+      const avail = (data || []).filter(p => p.status === 'available' && Number(p.selling_price) > 0);
+      setPhones(avail);
+      try { localStorage.setItem('pos_phones', JSON.stringify(avail)); } catch {}
     });
   }
 
@@ -294,6 +316,19 @@ export default function Staff() {
           {tab === 'expenses'    && <StaffExpensesTab />}
           {tab === 'history'     && <CustomerHistoryTab />}
         </div>
+
+        {/* Global toast notification */}
+        {toastState && (
+          <div onClick={() => { clearTimeout(toastTimer.current); setToastState(null); }}
+            style={{ position: 'fixed', top: 68, left: '50%', transform: 'translateX(-50%)',
+              background: toastState.type === 'success' ? 'var(--green)' : 'var(--red)',
+              color: '#fff', padding: '10px 22px', borderRadius: 50,
+              fontSize: 14, fontWeight: 700, zIndex: 9999,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.35)', cursor: 'pointer',
+              whiteSpace: 'nowrap', maxWidth: '88vw', textAlign: 'center' }}>
+            {toastState.type === 'success' ? '✓ ' : '⚠ '}{toastState.msg}
+          </div>
+        )}
       </div>
     </>
   );
@@ -431,11 +466,11 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
 
   function handleBarcode(raw) {
     const parsed = parseCode(raw);
-    if (!parsed) { alert(`Unrecognised barcode: ${raw}`); return; }
+    if (!parsed) { showToast(`Unrecognised barcode: ${raw}`); return; }
 
     if (parsed.type === 'product') {
       const prod = products.find(p => p.id === parsed.id);
-      if (!prod) { alert('Product not found'); return; }
+      if (!prod) { showToast('Product not found'); return; }
       setItems(prev => {
         const next = [...prev];
         const existIdx = next.findIndex(i => i.type === 'accessory' && String(i.productId) === String(prod.id));
@@ -451,7 +486,7 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
       });
     } else {
       const phone = phones.find(p => p.id === parsed.id);
-      if (!phone) { alert('Phone not found or not available'); return; }
+      if (!phone) { showToast('Phone not found or not available'); return; }
       setItems(prev => {
         const next = [...prev];
         const emptyIdx = next.findIndex(i => !i.productId && !i.phoneId);
@@ -464,9 +499,9 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
   }
 
   async function saveSale() {
-    if (!activeItems.length) { alert('Add at least one item'); return; }
+    if (!activeItems.length) { showToast('Add at least one item'); return; }
     if (!payment) { setPayError(true); return; }
-    if (payment === 'Credit' && !creditCustomer.trim()) { alert('Enter customer name for credit sale'); return; }
+    if (payment === 'Credit' && !creditCustomer.trim()) { showToast('Enter customer name for credit sale'); return; }
     setPayError(false);
     setSaving(true);
     const res = await fetch('/api/sales', {
@@ -494,30 +529,35 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
         price: Number(i.price),
       }));
       setDone({ items: receiptItems, total: grandTotal, payment, discount: totalDiscount });
-      setTimeout(() => {
-        setItems([emptyItem(), emptyItem()]);
-        setPayment(null);
-        setCreditCustomer('');
-        setPayError(false);
-        setDone(false);
-      }, 5000);
+      showToast(`Sale saved — Rs ${Math.round(grandTotal).toLocaleString()}`, 'success');
     } else {
-      alert(saleData.error || 'Error saving sale. Try again.');
+      showToast(saleData.error || 'Error saving sale. Try again.');
     }
   }
 
+  function resetSale() {
+    setItems([emptyItem(), emptyItem()]);
+    setPayment(null);
+    setCreditCustomer('');
+    setPayError(false);
+    setDone(false);
+  }
+
   if (done) return (
-    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-      <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+    <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+      <div style={{ fontSize: 64, marginBottom: 12 }}>✅</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>Sale Saved!</div>
-      <div style={{ color: 'var(--muted)', marginTop: 8 }}>Total: Rs {done.total?.toFixed(0)}</div>
+      <div style={{ color: 'var(--muted)', marginTop: 6 }}>Rs {done.total?.toFixed(0)} · {done.payment}</div>
       {btConnected && onPrint && (
-        <button onClick={() => onPrint(done)}
-          className="btn btn-ghost"
-          style={{ marginTop: 24, width: '100%', padding: '12px 0', fontSize: 15, fontWeight: 700 }}>
+        <button onClick={() => onPrint(done)} className="btn btn-ghost"
+          style={{ marginTop: 20, width: '100%', padding: '12px 0', fontSize: 15, fontWeight: 700 }}>
           🖨 Print Receipt
         </button>
       )}
+      <button onClick={resetSale} className="btn btn-green"
+        style={{ marginTop: 10, width: '100%', padding: '16px 0', fontSize: 17, fontWeight: 700 }}>
+        + New Sale
+      </button>
     </div>
   );
 
@@ -802,7 +842,7 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
   async function addPhonePhoto(e) {
     const files = Array.from(e.target.files || []);
     const current = stockForm.photos || [];
-    if (current.length >= 6) { alert('Max 6 photos'); return; }
+    if (current.length >= 6) { showToast('Max 6 photos'); return; }
     const toAdd = files.slice(0, 6 - current.length);
     const compressed = await Promise.all(toAdd.map(f => compressImage(f)));
     setStockForm(f => ({ ...f, photos: [...(f.photos || []), ...compressed] }));
@@ -810,10 +850,10 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
   }
 
   async function stockIn() {
-    if (!stockForm.brand.trim())     { alert('Enter brand'); return; }
-    if (!stockForm.phoneModel.trim()){ alert('Enter phone model'); return; }
-    if (!stockForm.ram)              { alert('Select RAM'); return; }
-    if (!stockForm.storage)          { alert('Select storage'); return; }
+    if (!stockForm.brand.trim())     { showToast('Enter brand'); return; }
+    if (!stockForm.phoneModel.trim()){ showToast('Enter phone model'); return; }
+    if (!stockForm.ram)              { showToast('Select RAM'); return; }
+    if (!stockForm.storage)          { showToast('Select storage'); return; }
     const model = `${stockForm.brand.trim()} ${stockForm.phoneModel.trim()} ${stockForm.ram}/${stockForm.storage}`;
     setSaving(true);
     const res = await fetch('/api/phones', {
@@ -828,7 +868,7 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
-    } else alert('Error. Try again.');
+    } else showToast('Error. Try again.');
   }
 
   if (view === 'stockin') {
@@ -1091,7 +1131,7 @@ function RepairTab() {
   const [saving, setSaving] = useState(false);
   const [done, setDone]   = useState(false);
 
-  useEffect(() => { if (view === 'list') loadRepairs(); }, [view]);
+  useEffect(() => { loadRepairs(); }, []);
 
   async function loadRepairs() {
     setLoadingList(true);
@@ -1105,33 +1145,33 @@ function RepairTab() {
   }
 
   async function updateStatus(id, status) {
-    setUpdatingId(id);
-    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-    setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    setUpdatingId(id);
+    fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+      .finally(() => setUpdatingId(null));
   }
 
   async function updatePayment(id, payment_method) {
-    setUpdatingId(id);
-    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payment_method }) });
-    setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, payment_method } : r));
+    setUpdatingId(id);
+    fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payment_method }) })
+      .finally(() => setUpdatingId(null));
   }
 
   async function updateDiscount(id) {
     const disc = Math.max(0, parseFloat(discountInputs[id]) || 0);
-    setUpdatingId(id);
-    await fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repair_discount: disc }) });
-    setUpdatingId(null);
     setRepairs(prev => prev.map(r => r.id === id ? { ...r, repair_discount: disc } : r));
     setDiscountInputs(prev => ({ ...prev, [id]: disc }));
+    setUpdatingId(id);
+    fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repair_discount: disc }) })
+      .finally(() => setUpdatingId(null));
   }
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   async function saveRepair() {
     if (!form.phone.trim() || !form.customer.trim() || !form.customerPhone.trim() || !form.issue.trim()) {
-      alert('Device model, customer name, phone number, and issue are all required');
+      showToast('Device model, customer name, phone number, and issue are all required');
       return;
     }
     setSaving(true);
@@ -1149,8 +1189,15 @@ function RepairTab() {
       }),
     });
     setSaving(false);
-    if (res.ok) { setDone(true); setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1500); }
-    else alert('Error saving. Try again.');
+    if (res.ok) {
+      const { id } = await res.json().catch(() => ({}));
+      const newRepair = { id, customer_name: form.customer, customer_phone: form.customerPhone, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status, payment_method: form.payment, repair_discount: 0, created_at: new Date().toISOString() };
+      setRepairs(prev => [newRepair, ...prev]);
+      setDiscountInputs(prev => ({ ...prev, [id]: 0 }));
+      showToast('Repair logged', 'success');
+      setDone(true);
+      setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1200);
+    } else showToast('Error saving. Try again.');
   }
 
   // Hide delivered + paid repairs by default
@@ -1385,12 +1432,12 @@ function StockTab({ products }) {
   const recentShops = shopNames.slice(0, 8);
 
   async function saveRegularStock() {
-    if (!productId) { alert('Select a product'); return; }
+    if (!productId) { showToast('Select a product'); return; }
     setSaving(true);
     const res = await fetch('/api/stock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId: Number(productId), qty: Number(qty) }) });
     setSaving(false);
-    if (res.ok) { setDone(true); setTimeout(() => { setProductId(''); setQty(1); setDone(false); }, 1800); }
-    else alert('Error saving. Try again.');
+    if (res.ok) { showToast('Stock updated', 'success'); setProductId(''); setQty(1); }
+    else showToast('Error saving. Try again.');
   }
 
   function setShopItem(idx, field, val) {
@@ -1406,9 +1453,9 @@ function StockTab({ products }) {
   }
 
   async function saveShopPurchase() {
-    if (!shopName.trim()) { alert('Enter shop name'); return; }
+    if (!shopName.trim()) { showToast('Enter shop name'); return; }
     const filled = shopItems.filter(i => i.productName && i.qty > 0);
-    if (!filled.length) { alert('Add at least one product'); return; }
+    if (!filled.length) { showToast('Add at least one product'); return; }
     setShopSaving(true);
     const res = await fetch('/api/shop-tabs', {
       method: 'POST',
@@ -1419,7 +1466,7 @@ function StockTab({ products }) {
     if (res.ok) {
       setShopDone(true);
       setTimeout(() => { setDirection('in'); setShopName(''); setShopItems([blankShopItem()]); setShopDone(false); setShopView('list'); }, 1500);
-    } else alert('Error saving. Try again.');
+    } else showToast('Error saving. Try again.');
   }
 
   if (done)     return <SuccessScreen emoji="📦" title="Stock Added!" />;
@@ -1569,12 +1616,12 @@ function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
   }
 
   async function addProduct() {
-    if (!form.name.trim() || !form.selling_price) { alert('Enter accessory name and selling price'); return; }
+    if (!form.name.trim() || !form.selling_price) { showToast('Enter accessory name and selling price'); return; }
     setSaving(true);
     const res = await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.name.trim(), selling_price: parseFloat(form.selling_price), photo: form.photo || null }) });
     setSaving(false);
     if (res.ok) { setDone(form.name); setForm({ name: '', selling_price: '', photo: '' }); setShowAdd(false); reload(); setTimeout(() => setDone(''), 3000); }
-    else alert('Error saving. Try again.');
+    else showToast('Error saving. Try again.');
   }
 
   return (
@@ -1689,11 +1736,11 @@ function ReturnForm({ title, description, endpoint, itemType, items, showQty, sh
   const selected = items.find(i => i.id === Number(itemId));
 
   async function submit() {
-    if (!itemId) { alert('Select an item'); return; }
+    if (!itemId) { showToast('Select an item'); return; }
     setSaving(true);
     const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itemType, itemId: Number(itemId), itemName: selected?.label || '', quantity: Number(quantity), reason, return_amount: showAmount ? (parseFloat(returnAmount) || 0) : 0 }) });
     setSaving(false);
-    if (!r.ok) { alert('Failed'); return; }
+    if (!r.ok) { showToast('Failed'); return; }
     setMsg(`✓ Return recorded for: ${selected?.label}`);
     setItemId(''); setQuantity(1); setReason(''); setReturnAmount('');
     setTimeout(() => setMsg(''), 4000);
@@ -2127,13 +2174,13 @@ function StaffExpensesTab() {
   }
 
   async function save() {
-    if (!form.description.trim()) { alert('Enter a description'); return; }
-    if (!form.amount || Number(form.amount) <= 0) { alert('Enter a valid amount'); return; }
+    if (!form.description.trim()) { showToast('Enter a description'); return; }
+    if (!form.amount || Number(form.amount) <= 0) { showToast('Enter a valid amount'); return; }
     setSaving(true);
     const r = await fetch('/api/expenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: form.description.trim(), amount: parseFloat(form.amount), payment_method: form.payment_method, category: form.category }) });
     setSaving(false);
-    if (r.ok) { setForm({ description: '', amount: '', payment_method: 'Cash', category: 'expense' }); load(); }
-    else alert('Error saving. Try again.');
+    if (r.ok) { setForm({ description: '', amount: '', payment_method: 'Cash', category: 'expense' }); load(); showToast('Expense recorded', 'success'); }
+    else showToast('Error saving. Try again.');
   }
 
   async function del(id) {
