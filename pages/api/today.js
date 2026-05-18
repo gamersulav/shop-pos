@@ -10,15 +10,30 @@ export default async function handler(req, res) {
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = await getDb();
-  const [sales, repairs, setting] = await Promise.all([
-    db.queryOne(`SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY}`),
-    db.queryOne(`SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} = ${NPT_TODAY}`),
-    db.queryOne(`SELECT value FROM shop_settings WHERE key='daily_target'`),
+  const [accessories, phones, repairs, settingRows] = await Promise.all([
+    db.queryOne(`SELECT COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as amt
+                 FROM sale_items si JOIN sales s ON s.id=si.sale_id
+                 WHERE si.product_id IS NOT NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(si.quantity),0) as qty
+                 FROM sale_items si JOIN sales s ON s.id=si.sale_id
+                 WHERE si.product_id IS NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
+    db.queryOne(`SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as amt
+                 FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} = ${NPT_TODAY}`),
+    db.query(`SELECT key, value FROM shop_settings WHERE key IN ('target_phones_qty','target_accessories_amt','target_repairs_amt')`),
   ]);
 
-  const revenue = Number(sales?.revenue || 0) + Number(repairs?.revenue || 0);
-  const target  = Number(setting?.value || 0);
+  const sm = {};
+  for (const row of settingRows) sm[row.key] = Number(row.value) || 0;
 
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ revenue, target });
+  res.json({
+    phonesQty:      Number(phones?.qty      || 0),
+    accessoriesAmt: Number(accessories?.amt || 0),
+    repairsAmt:     Number(repairs?.amt     || 0),
+    targets: {
+      phonesQty:      sm['target_phones_qty']      || 0,
+      accessoriesAmt: sm['target_accessories_amt'] || 0,
+      repairsAmt:     sm['target_repairs_amt']     || 0,
+    },
+  });
 }

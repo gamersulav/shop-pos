@@ -255,17 +255,29 @@ export default function Staff() {
           ))}
         </div>
 
-        {todayData?.target > 0 && (() => {
-          const pct = Math.min(100, (todayData.revenue / todayData.target) * 100);
+        {todayData?.targets && (() => {
+          const bars = [
+            { label: '📱', actual: todayData.phonesQty,      target: todayData.targets.phonesQty,      fmt: v => `${v} sold` },
+            { label: '🏷', actual: todayData.accessoriesAmt, target: todayData.targets.accessoriesAmt, fmt: v => `Rs ${Math.round(v).toLocaleString()}` },
+            { label: '🔧', actual: todayData.repairsAmt,     target: todayData.targets.repairsAmt,     fmt: v => `Rs ${Math.round(v).toLocaleString()}` },
+          ].filter(b => b.target > 0);
+          if (!bars.length) return null;
           return (
-            <div style={{ padding: '6px 16px 4px', background: 'var(--card)', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>
-                <span>Today: Rs {Math.round(todayData.revenue).toLocaleString()}</span>
-                <span>{pct.toFixed(0)}% of Rs {todayData.target.toLocaleString()}</span>
-              </div>
-              <div style={{ height: 5, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--cyan)' : 'var(--amber)', borderRadius: 3, transition: 'width 0.4s' }} />
-              </div>
+            <div style={{ padding: '6px 16px 6px', background: 'var(--card)', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {bars.map(({ label, actual, target, fmt }) => {
+                const pct = Math.min(100, (actual / target) * 100);
+                return (
+                  <div key={label}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>
+                      <span>{label} {fmt(actual)}</span>
+                      <span>{pct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--cyan)' : 'var(--amber)', borderRadius: 2, transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
