@@ -11,8 +11,8 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     const expense = await db.queryOne('SELECT * FROM expenses WHERE id=?', [id]);
     if (!expense) return res.status(404).json({ error: 'Not found' });
-    if (session.role !== 'owner' && Number(expense.user_id) !== session.id) {
-      return res.status(403).json({ error: 'Cannot delete this expense' });
+    if (session.role !== 'owner') {
+      return res.status(403).json({ error: 'Only owner can delete expenses' });
     }
     await db.run('DELETE FROM expenses WHERE id=?', [id]);
     return res.json({ ok: true });

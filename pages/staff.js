@@ -2160,7 +2160,7 @@ function StaffExpensesTab() {
         <>
           <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>TODAY</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-            {todayExp.map(e => <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate={false} />)}
+            {todayExp.map(e => <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate={false} canDelete={false} />)}
           </div>
         </>
       )}
@@ -2168,7 +2168,7 @@ function StaffExpensesTab() {
         <>
           <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>EARLIER THIS MONTH</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {earlierExp.map(e => <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate fmtDate={fmtExpDate} />)}
+            {earlierExp.map(e => <ExpenseRow key={e.id} e={e} onDelete={del} deleting={deleting} showDate fmtDate={fmtExpDate} canDelete={false} />)}
           </div>
         </>
       )}
@@ -2177,7 +2177,7 @@ function StaffExpensesTab() {
   );
 }
 
-function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate }) {
+function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate, canDelete = true }) {
   const [confirm, setConfirm] = useState(false);
   const pm = e.payment_method || 'Cash';
   const pmColor = CASH_COLORS[pm] || 'var(--muted)';
@@ -2196,13 +2196,13 @@ function ExpenseRow({ e, onDelete, deleting, showDate, fmtDate }) {
         </div>
       </div>
       <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', flexShrink: 0 }}>Rs {Number(e.amount).toLocaleString()}</div>
-      {!confirm ? (
+      {canDelete && (!confirm ? (
         <button onClick={() => setConfirm(true)} style={{ background: 'none', border: '1.5px solid var(--border)', borderRadius: 8, color: 'var(--muted)', padding: '4px 8px', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>×</button>
       ) : (
         <button onClick={() => { setConfirm(false); onDelete(e.id); }} disabled={deleting === e.id} style={{ background: 'var(--red)', border: 'none', borderRadius: 8, color: '#fff', padding: '5px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
           {deleting === e.id ? '…' : 'Del?'}
         </button>
-      )}
+      ))}
     </div>
   );
 }

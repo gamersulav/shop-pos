@@ -11,9 +11,9 @@ export default async function handler(req, res) {
     const { period, type } = req.query;
     const where = [];
 
-    // Staff only see staff-submitted expenses
+    // Staff see their own expenses + all COGS and service_cost entries
     if (session.role === 'staff') {
-      where.push("entered_by = 'staff'");
+      where.push("(entered_by = 'staff' OR category IN ('cogs', 'service_cost'))");
     } else if (type === 'staff') {
       where.push("entered_by = 'staff'");
     } else if (type === 'owner') {
