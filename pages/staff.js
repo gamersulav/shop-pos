@@ -157,6 +157,13 @@ export default function Staff() {
     finally { setBtPrinting(false); }
   }
 
+  async function onPrintRepairTicket(repair) {
+    setBtPrinting(true); setBtError('');
+    try { await BTPrint.printRepairTicket(repair); showBtMsg('Repair ticket printed'); }
+    catch (e) { setBtError(e.message || String(e)); }
+    finally { setBtPrinting(false); }
+  }
+
   async function onPrintPhoneLabel(phone) {
     setBtPrinting(true); setBtError('');
     try { await BTPrint.printPhoneLabel(phone); showBtMsg('Label printed'); }
@@ -248,7 +255,7 @@ export default function Staff() {
         <div style={{ padding: '16px' }}>
           {tab === 'sale'        && <SaleTab products={products} phones={phones} btConnected={btConnected} onPrint={onPrintReceipt} />}
           {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} btConnected={btConnected} onPrintLabel={onPrintPhoneLabel} />}
-          {tab === 'repair'      && <RepairTab />}
+          {tab === 'repair'      && <RepairTab btConnected={btConnected} onPrintTicket={onPrintRepairTicket} />}
           {tab === 'stock'       && <StockTab products={products} />}
           {tab === 'accessories' && <AccessoriesTab products={products} reload={loadProducts} btConnected={btConnected} onPrintLabel={onPrintProductLabel} />}
           {tab === 'returns'     && <ReturnsTab products={products} />}
@@ -1039,7 +1046,7 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
 }
 
 // ─── REPAIR TAB ───────────────────────────────────────────────────────────────
-function RepairTab() {
+function RepairTab({ btConnected, onPrintTicket }) {
   const [view, setView]         = useState('list');
   const [repairs, setRepairs]   = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -1237,9 +1244,9 @@ function RepairTab() {
                         📱 Notify Customer
                       </a>
                     )}
-                    <button onClick={() => printRepairReceipt(r)}
+                    <button onClick={() => btConnected && onPrintTicket ? onPrintTicket(r) : printRepairReceipt(r)}
                       style={{ flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 700, borderRadius: 10, background: 'none', border: '1.5px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}>
-                      🖨️ Print Receipt
+                      🖨️ {btConnected ? 'BT Print' : 'Print Receipt'}
                     </button>
                   </div>
                 </div>

@@ -1123,8 +1123,14 @@ function RepairsTab() {
                       </a>
                     )}
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 11 }}
-                      onClick={() => printRepairReceipt(r)}>
-                      🖨️ PDF
+                      onClick={async () => {
+                        try {
+                          const BT = await import('../lib/btprint');
+                          if (BT.isAvailable()) { await BT.printRepairTicket(r); return; }
+                        } catch {}
+                        printRepairReceipt(r);
+                      }}>
+                      🖨️ Print
                     </button>
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
                       onClick={() => setEditing({ id: r.id, customer_name: r.customer_name || '', customer_phone: r.customer_phone || '', phone_model: r.phone_model || '', issue: r.issue || '', customer_price: r.customer_price, repair_discount: r.repair_discount || 0, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
