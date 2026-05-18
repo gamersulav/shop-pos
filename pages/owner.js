@@ -21,12 +21,15 @@ const TABS = [
   { id: 'expenses',  label: '💸 Expenses' },
   { id: 'cash',      label: '💰 Cash' },
 ];
+const PRIMARY_TAB_IDS = ['dash', 'analytics', 'cash'];
+const MENU_TABS = TABS.filter(t => !PRIMARY_TAB_IDS.includes(t.id));
 
 export default function Owner() {
   const router = useRouter();
   const [tab, setTab] = useState('dash');
   const [products, setProducts] = useState([]);
   const [showChangePw, setShowChangePw] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -50,25 +53,58 @@ export default function Owner() {
       <div style={{ maxWidth: 520, margin: '0 auto', minHeight: '100vh' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
-          <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 16 }}>👑 Owner Panel</span>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>
-              Staff View
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => setMenuOpen(p => !p)}
+              style={{ background: menuOpen ? 'rgba(176,96,255,0.12)' : 'transparent', border: `1.5px solid ${menuOpen ? 'var(--purple)' : 'var(--border)'}`, borderRadius: 8, color: menuOpen ? 'var(--purple)' : 'var(--text)', padding: '5px 10px', cursor: 'pointer', fontSize: 17, lineHeight: 1, fontWeight: 700, flexShrink: 0 }}>
+              {menuOpen ? '✕' : '☰'}
             </button>
-            <button onClick={() => setShowChangePw(true)} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }}>🔑</button>
-            <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}>Logout</button>
+            {(() => {
+              const active = MENU_TABS.find(t => t.id === tab);
+              return active
+                ? <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 15 }}>{active.label}</span>
+                : <span style={{ fontWeight: 700, color: 'var(--purple)', fontSize: 15 }}>👑 Owner Panel</span>;
+            })()}
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => router.push('/staff')} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }}>Staff</button>
+            <button onClick={() => setShowChangePw(true)} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }}>🔑</button>
+            <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 10px' }}>Logout</button>
           </div>
         </div>
+
+        {/* Dropdown menu */}
+        {menuOpen && (
+          <>
+            <div onClick={() => setMenuOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 24, background: 'rgba(0,0,0,0.35)' }} />
+            <div style={{ position: 'fixed', top: 53, left: 0, right: 0, zIndex: 25, maxWidth: 520, margin: '0 auto' }}>
+              <div style={{ background: 'var(--card)', borderRadius: '0 0 16px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)', overflow: 'hidden' }}>
+                {MENU_TABS.map((t, i) => (
+                  <button key={t.id} onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 20px', textAlign: 'left',
+                      background: tab === t.id ? 'rgba(176,96,255,0.1)' : 'transparent',
+                      border: 'none', borderBottom: i < MENU_TABS.length - 1 ? '1px solid var(--border)' : 'none',
+                      color: tab === t.id ? 'var(--purple)' : 'var(--text)',
+                      fontSize: 15, fontWeight: tab === t.id ? 700 : 500, cursor: 'pointer' }}>
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>{t.label.split(' ')[0]}</span>
+                    <span>{t.label.split(' ').slice(1).join(' ')}</span>
+                    {tab === t.id && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--purple)' }}>● active</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Change password modal */}
         {showChangePw && <ChangePasswordModal onClose={() => setShowChangePw(false)} />}
 
-        {/* Tab bar */}
-        <div className="tab-bar" style={{ overflowX: 'auto' }}>
-          {TABS.map(t => (
+        {/* Primary tab bar */}
+        <div className="tab-bar">
+          {TABS.filter(t => PRIMARY_TAB_IDS.includes(t.id)).map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 10, minWidth: 60 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 11, flex: 1, minWidth: 0 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
