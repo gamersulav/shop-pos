@@ -734,10 +734,11 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
 function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
   const [phones, setPhones]   = useState([]);
   const [view, setView]       = useState('list');
-  const [saving, setSaving]   = useState(false);
-  const [done, setDone]       = useState('');
-  const [sortBy, setSortBy]   = useState('recents');
-  const [search, setSearch]   = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [done, setDone]         = useState('');
+  const [sortBy, setSortBy]     = useState('recents');
+  const [search, setSearch]     = useState('');
+  const [showPhoneConfirm, setShowPhoneConfirm] = useState(false);
   const BLANK_STOCK = { brand: '', phoneModel: '', ram: '', storage: '', condition: 'Good', notes: '', photos: [] };
   const [stockForm, setStockForm] = useState(BLANK_STOCK);
   const [shareToast, setShareToast]       = useState('');
@@ -849,11 +850,15 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
     e.target.value = '';
   }
 
-  async function stockIn() {
+  function reviewPhone() {
     if (!stockForm.brand.trim())     { showToast('Enter brand'); return; }
     if (!stockForm.phoneModel.trim()){ showToast('Enter phone model'); return; }
     if (!stockForm.ram)              { showToast('Select RAM'); return; }
     if (!stockForm.storage)          { showToast('Select storage'); return; }
+    setShowPhoneConfirm(true);
+  }
+
+  async function stockIn() {
     const model = `${stockForm.brand.trim()} ${stockForm.phoneModel.trim()} ${stockForm.ram}/${stockForm.storage}`;
     setSaving(true);
     const res = await fetch('/api/phones', {
@@ -863,12 +868,74 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
     });
     setSaving(false);
     if (res.ok) {
+      showToast('Phone stocked', 'success');
       setDone('stocked');
       setStockForm(BLANK_STOCK);
+      setShowPhoneConfirm(false);
       setView('list');
       loadPhones();
       setTimeout(() => setDone(''), 3000);
     } else showToast('Error. Try again.');
+  }
+
+  if (view === 'stockin' && showPhoneConfirm) {
+    const previewModel = `${stockForm.brand.trim()} ${stockForm.phoneModel.trim()} ${stockForm.ram}/${stockForm.storage}`;
+    return (
+      <div>
+        <button onClick={() => setShowPhoneConfirm(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, marginBottom: 16, padding: 0 }}>← Edit</button>
+        <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Confirm Before Saving</h2>
+
+        <div style={{ padding: '12px 14px', background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 13, color: 'var(--red)', marginBottom: 14 }}>
+          ⚠ Check carefully — spelling and specs cannot be edited after saving. If anything is wrong, go back and fix it.
+        </div>
+
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>MODEL</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>{previewModel}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>RAM</div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.ram}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>STORAGE</div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.storage}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>CONDITION</div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.condition}</div>
+            </div>
+          </div>
+          {stockForm.notes ? (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>NOTES</div>
+              <div style={{ fontSize: 13 }}>{stockForm.notes}</div>
+            </div>
+          ) : null}
+          {(stockForm.photos||[]).length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PHOTOS ({stockForm.photos.length})</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {stockForm.photos.map((src, i) => (
+                  <img key={i} src={src} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button className="btn btn-green" onClick={stockIn} disabled={saving}
+          style={{ fontSize: 16, minHeight: 54 }}>
+          {saving ? 'Saving…' : '✅ Everything looks correct — Save Phone'}
+        </button>
+        <button onClick={() => setShowPhoneConfirm(false)} className="btn btn-ghost"
+          style={{ marginTop: 10, width: '100%' }}>
+          ← Go back and edit
+        </button>
+      </div>
+    );
   }
 
   if (view === 'stockin') {
@@ -950,8 +1017,8 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
           <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
             ℹ️ Price will be set by the owner before selling
           </div>
-          <button className="btn btn-cyan" onClick={stockIn} disabled={saving}>
-            {saving ? 'Saving…' : '📱 Save Phone'}
+          <button className="btn btn-cyan" onClick={reviewPhone} disabled={saving}>
+            📱 Review & Confirm →
           </button>
         </div>
       </div>
@@ -1636,12 +1703,28 @@ function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
       {showAdd && (
         <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--cyan)' }}>New Accessory</div>
-          {[['ACCESSORY NAME', 'name', 'text', 'e.g. iPhone 15 Case'], ['SELLING PRICE (Rs)', 'selling_price', 'number', '0']].map(([lbl, key, type, ph]) => (
-            <div key={key}>
-              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>{lbl}</label>
-              <input type={type} placeholder={ph} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
-            </div>
-          ))}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>ACCESSORY NAME</label>
+            <input type="text" placeholder="e.g. iPhone 15 Case" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            {(() => {
+              const typed = form.name.trim().toLowerCase();
+              if (typed.length < 2) return null;
+              const matches = products.filter(p => {
+                const ex = p.name.toLowerCase();
+                return ex.includes(typed) || typed.includes(ex);
+              });
+              if (!matches.length) return null;
+              return (
+                <div style={{ marginTop: 8, padding: '9px 12px', background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, fontSize: 12, color: 'var(--red)' }}>
+                  ⚠ Already in stock: {matches.map(p => <strong key={p.id}> "{p.name}"</strong>)}. Add a new product only if it's genuinely different.
+                </div>
+              );
+            })()}
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>SELLING PRICE (Rs)</label>
+            <input type="number" placeholder="0" value={form.selling_price} onChange={e => setForm(f => ({ ...f, selling_price: e.target.value }))} />
+          </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHOTO — Optional</label>
             {form.photo ? (
