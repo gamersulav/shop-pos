@@ -49,6 +49,8 @@ const PAYMENT_COLORS = {
 const CASH_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
 const CASH_COLORS  = { Cash: 'var(--green)', eSewa: 'var(--cyan)', 'Bank Transfer': 'var(--purple)', Fonepay: 'var(--amber)' };
 const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
+const PRIMARY_TAB_IDS = ['sale', 'repair'];
+const MENU_TABS = TABS.filter(t => !PRIMARY_TAB_IDS.includes(t.id));
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 let _showToast = null;
@@ -75,6 +77,7 @@ export default function Staff() {
   const [todayData, setTodayData] = useState(null);
   const [toastState, setToastState] = useState(null);
   const toastTimer = useRef(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Bluetooth printer state (only active inside the Android APK)
   const [btConnected,  setBtConnected]  = useState(false);
@@ -208,8 +211,23 @@ export default function Staff() {
     <>
       <Head><title>Staff — Shop POS</title></Head>
       <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
-          <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 16 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 400 }}>Staff</span></span>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--card)', position: 'sticky', top: 0, zIndex: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Hamburger */}
+            <button onClick={() => setMenuOpen(p => !p)}
+              style={{ background: menuOpen ? 'rgba(0,212,255,0.12)' : 'transparent', border: `1.5px solid ${menuOpen ? 'var(--cyan)' : 'var(--border)'}`, borderRadius: 8, color: menuOpen ? 'var(--cyan)' : 'var(--text)', padding: '5px 10px', cursor: 'pointer', fontSize: 17, lineHeight: 1, fontWeight: 700, flexShrink: 0 }}>
+              {menuOpen ? '✕' : '☰'}
+            </button>
+            {/* Active section label — shows current menu tab name, or app name when on primary tab */}
+            {(() => {
+              const active = MENU_TABS.find(t => t.id === tab);
+              return active
+                ? <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 15 }}>{active.label}</span>
+                : <span style={{ fontWeight: 700, color: 'var(--cyan)', fontSize: 15 }}>📱 Shop POS <span style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 400 }}>Staff</span></span>;
+            })()}
+          </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {btAvail && (
               <>
@@ -217,21 +235,45 @@ export default function Staff() {
                   onClick={btConnected ? handleBtDisconnect : handleBtConnect}
                   disabled={btConnecting || btPrinting}
                   className="btn btn-ghost btn-sm"
-                  style={{ width: 'auto', padding: '6px 12px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700 }}>
-                  {btConnecting ? '…' : btPrinting ? '⏳' : btConnected ? `🖨 ${btName}` : '🖨 Printer'}
+                  style={{ width: 'auto', padding: '6px 10px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700, fontSize: 12 }}>
+                  {btConnecting ? '…' : btPrinting ? '⏳' : btConnected ? `🖨 ${btName}` : '🖨'}
                 </button>
                 {btConnected && (
                   <button onClick={handleTestPrint} disabled={btPrinting}
                     className="btn btn-ghost btn-sm"
-                    style={{ width: 'auto', padding: '6px 10px', color: 'var(--amber)', fontWeight: 700, fontSize: 11 }}>
+                    style={{ width: 'auto', padding: '6px 8px', color: 'var(--amber)', fontWeight: 700, fontSize: 11 }}>
                     Test
                   </button>
                 )}
               </>
             )}
-            <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 14px' }}>Logout</button>
+            <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}>Logout</button>
           </div>
         </div>
+
+        {/* Dropdown menu */}
+        {menuOpen && (
+          <>
+            <div onClick={() => setMenuOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 24, background: 'rgba(0,0,0,0.35)' }} />
+            <div style={{ position: 'fixed', top: 53, left: 0, right: 0, zIndex: 25, maxWidth: 480, margin: '0 auto' }}>
+              <div style={{ background: 'var(--card)', borderRadius: '0 0 16px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)', overflow: 'hidden' }}>
+                {MENU_TABS.map((t, i) => (
+                  <button key={t.id} onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 20px', textAlign: 'left',
+                      background: tab === t.id ? 'rgba(0,212,255,0.1)' : 'transparent',
+                      border: 'none', borderBottom: i < MENU_TABS.length - 1 ? '1px solid var(--border)' : 'none',
+                      color: tab === t.id ? 'var(--cyan)' : 'var(--text)',
+                      fontSize: 15, fontWeight: tab === t.id ? 700 : 500, cursor: 'pointer' }}>
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>{t.label.split(' ')[0]}</span>
+                    <span>{t.label.split(' ').slice(1).join(' ')}</span>
+                    {tab === t.id && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--cyan)' }}>● active</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {btError ? (
           <div onClick={() => setBtError('')} style={{ background: 'var(--red)', color: '#fff', fontSize: 12, padding: '8px 16px', cursor: 'pointer' }}>
@@ -268,10 +310,11 @@ export default function Staff() {
           </div>
         )}
 
-        <div className="tab-bar" style={{ overflowX: 'auto' }}>
-          {TABS.map(t => (
+        {/* Primary tab bar — Sale and Repair only */}
+        <div className="tab-bar">
+          {TABS.filter(t => PRIMARY_TAB_IDS.includes(t.id)).map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 10, minWidth: 52 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 13, flex: 1, minWidth: 0 }} onClick={() => setTab(t.id)}>
               {t.label}
             </div>
           ))}
