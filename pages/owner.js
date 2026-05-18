@@ -1123,13 +1123,7 @@ function RepairsTab() {
                       </a>
                     )}
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 11 }}
-                      onClick={async () => {
-                        try {
-                          const BT = await import('../lib/btprint');
-                          if (BT.isAvailable()) { await BT.printRepairTicket(r); return; }
-                        } catch {}
-                        printRepairReceipt(r);
-                      }}>
+                      onClick={() => printRepairReceipt(r)}>
                       🖨️ Print
                     </button>
                     <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
