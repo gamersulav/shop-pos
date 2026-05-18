@@ -157,7 +157,7 @@ function DashboardTab() {
 
   if (!data) return <LoadingState />;
 
-  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit } = data;
+  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit, inventoryValue, supplierDebt } = data;
 
   const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
 
@@ -188,6 +188,76 @@ function DashboardTab() {
           <StatCard val={`${monthly.margin.toFixed(1)}%`}         lbl="Margin"       color="var(--amber)" />
           <StatCard val={monthly.sales}                            lbl="Sales"        color="var(--purple)" />
         </div>
+      </div>
+
+      {/* Inventory valuation */}
+      {inventoryValue && (
+        <div>
+          <SectionLabel>INVENTORY VALUE (AT COST)</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div className="stat-card">
+              <div className="val" style={{ color: 'var(--cyan)', fontSize: 15 }}>Rs {Math.round(inventoryValue.products).toLocaleString()}</div>
+              <div className="lbl">Products</div>
+            </div>
+            <div className="stat-card">
+              <div className="val" style={{ color: 'var(--purple)', fontSize: 15 }}>Rs {Math.round(inventoryValue.phones).toLocaleString()}</div>
+              <div className="lbl">Phones</div>
+            </div>
+            <div className="stat-card">
+              <div className="val" style={{ color: 'var(--green)', fontSize: 15 }}>Rs {Math.round(inventoryValue.total).toLocaleString()}</div>
+              <div className="lbl">Total Stock</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supplier debt */}
+      {supplierDebt && (supplierDebt.weOwe > 0 || supplierDebt.theyOwe > 0) && (
+        <div>
+          <SectionLabel>SUPPLIER DEBT</SectionLabel>
+          <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--amber)' }}>Rs {supplierDebt.weOwe.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>We owe</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--green)' }}>Rs {supplierDebt.theyOwe.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>They owe</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: supplierDebt.net >= 0 ? 'var(--green)' : 'var(--amber)' }}>
+                Rs {Math.abs(supplierDebt.net).toLocaleString()}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Net {supplierDebt.net >= 0 ? '(favour)' : '(owed)'}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Daily WhatsApp summary */}
+      <div>
+        <button
+          onClick={() => {
+            const d = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const lines = [
+              `📊 *Daily Report — ${d}*`,
+              ``,
+              `💰 Revenue: Rs ${Math.round(today.revenue).toLocaleString()}`,
+              `📈 Gross Profit: Rs ${Math.round(today.grossProfit).toLocaleString()}`,
+              `💸 Expenses: Rs ${Math.round(today.expenses).toLocaleString()}`,
+              `✅ Net Profit: Rs ${Math.round(today.profit).toLocaleString()}`,
+              ``,
+              `🛍️ Sales: ${today.sales}  |  Items: ${today.items}`,
+            ];
+            if (payments?.length > 0) {
+              lines.push(''); lines.push('💳 *Payments*');
+              payments.forEach(p => lines.push(`• ${p.method}: Rs ${Number(p.total).toLocaleString()}`));
+            }
+            window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
+          }}
+          style={{ width: '100%', padding: '12px', background: '#25D366', border: 'none', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+          📤 Send Daily Summary to WhatsApp
+        </button>
       </div>
 
       {/* Daily profit */}
@@ -1042,12 +1112,25 @@ function RepairsTab() {
                   <span>Your Cost: <span style={{ color: 'var(--amber)', fontWeight: 700 }}>Rs {r.cost_price}</span></span>
                   <span>Profit: <span style={{ color: 'var(--green)', fontWeight: 700 }}>Rs {r.customer_price - r.cost_price}</span></span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(r.created_at)}</span>
-                  <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
-                    onClick={() => setEditing({ id: r.id, customer_name: r.customer_name || '', customer_phone: r.customer_phone || '', phone_model: r.phone_model || '', issue: r.issue || '', customer_price: r.customer_price, repair_discount: r.repair_discount || 0, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
-                    Edit
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {(r.status === 'Done' || r.status === 'Delivered') && toWhatsApp(r.customer_phone) && (
+                      <a href={`https://wa.me/${toWhatsApp(r.customer_phone)}?text=${encodeURIComponent(`Hi ${r.customer_name}! 👋 Your ${r.phone_model} repair is ready for pickup at Univercell. Total: Rs ${Math.max(0, Number(r.customer_price) - Number(r.repair_discount||0)).toLocaleString()}. Thank you! 😊`)}`}
+                        target="_blank" rel="noreferrer"
+                        style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, background: '#25D366', color: '#fff', textDecoration: 'none' }}>
+                        📱 Notify
+                      </a>
+                    )}
+                    <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 11 }}
+                      onClick={() => printRepairReceipt(r)}>
+                      🖨️ PDF
+                    </button>
+                    <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
+                      onClick={() => setEditing({ id: r.id, customer_name: r.customer_name || '', customer_phone: r.customer_phone || '', phone_model: r.phone_model || '', issue: r.issue || '', customer_price: r.customer_price, repair_discount: r.repair_discount || 0, cost_price: r.cost_price, status: r.status, notes: r.notes || '', payment_method: r.payment_method || 'Cash' })}>
+                      Edit
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1927,4 +2010,52 @@ function StatusBadge({ status }) {
 
 function LoadingState() {
   return <div style={{ textAlign: 'center', padding: 60, color: 'var(--muted)' }}>Loading…</div>;
+}
+
+// Format a phone number to international WhatsApp format (Nepal 977 prefix)
+function toWhatsApp(phone) {
+  if (!phone) return null;
+  const clean = phone.replace(/\D/g, '');
+  if (clean.startsWith('977')) return clean;
+  if (clean.length === 10 && clean.startsWith('9')) return '977' + clean;
+  if (clean.startsWith('0') && clean.length === 11) return '977' + clean.slice(1);
+  return clean || null;
+}
+
+// Open a print window with a formatted repair receipt
+function printRepairReceipt(r) {
+  const charge = Number(r.customer_price) || 0;
+  const disc   = Number(r.repair_discount) || 0;
+  const final  = Math.max(0, charge - disc);
+  const date   = r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Repair Receipt</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:monospace;font-size:13px;max-width:300px;margin:0 auto;padding:16px}
+    h2{text-align:center;font-size:16px;margin-bottom:2px}
+    .center{text-align:center;color:#555;font-size:11px;margin-bottom:8px}
+    .dash{border-top:1px dashed #000;margin:8px 0}
+    .row{display:flex;justify-content:space-between;margin-bottom:4px}
+    .bold{font-weight:bold}
+    .total{font-size:15px;font-weight:bold;margin-top:4px}
+  </style></head><body>
+  <h2>Univercell</h2>
+  <p class="center">Mobile Accessories &amp; Repair</p>
+  <div class="dash"></div>
+  <div class="row"><span>Customer</span><span class="bold">${r.customer_name || ''}</span></div>
+  ${r.customer_phone ? `<div class="row"><span>Phone</span><span>${r.customer_phone}</span></div>` : ''}
+  <div class="row"><span>Device</span><span>${r.phone_model || '—'}</span></div>
+  <div class="row"><span>Issue</span><span style="max-width:160px;text-align:right">${r.issue || '—'}</span></div>
+  <div class="row"><span>Date</span><span>${date}</span></div>
+  <div class="dash"></div>
+  ${disc > 0 ? `<div class="row"><span>Charge</span><span>Rs ${charge.toLocaleString()}</span></div><div class="row"><span>Discount</span><span>- Rs ${disc.toLocaleString()}</span></div>` : ''}
+  <div class="row total"><span>Total</span><span>Rs ${final.toLocaleString()}</span></div>
+  <div class="row"><span>Payment</span><span>${r.payment_method || 'Cash'}</span></div>
+  ${r.notes ? `<div class="dash"></div><div><span class="bold">Notes: </span>${r.notes}</div>` : ''}
+  <div class="dash"></div>
+  <p style="text-align:center;font-size:11px;margin-top:4px">Thank you for choosing Univercell!</p>
+  <script>window.onload=function(){window.print();}</script>
+  </body></html>`;
+  const w = window.open('', '_blank', 'width=400,height=620');
+  if (w) { w.document.write(html); w.document.close(); }
 }

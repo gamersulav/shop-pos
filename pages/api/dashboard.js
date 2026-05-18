@@ -23,6 +23,8 @@ export default async function handler(req, res) {
     dTodayItems, dTodayPhones, dTodayRepairs, dTodayCrSales, dTodayCrRepairs,
     dMonthItems, dMonthPhones, dMonthRepairs, dMonthCrSales, dMonthCrRepairs,
     dailySales, dailyRepairs, dailyExp30,
+    invProducts, invPhones,
+    supplierDebt,
   ] = await Promise.all([
     // ── Today ──────────────────────────────────────────────────────────────
     db.queryOne(`SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY}`),
@@ -61,6 +63,11 @@ export default async function handler(req, res) {
     db.query(`SELECT ${nptDate('s.created_at')} as day, COALESCE(SUM(s.total_amount - COALESCE(s.credit_discount,0)),0) as revenue, COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC`),
     db.query(`SELECT ${nptDate('created_at')} as day, COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit, COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC`),
     db.query(`SELECT expense_date as day, COALESCE(SUM(amount),0) as expenses FROM expenses WHERE category='expense' AND expense_date >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC`),
+    // ── Inventory valuation ────────────────────────────────────────────────
+    db.queryOne(`SELECT COALESCE(SUM(cost_price * stock),0) as total FROM products WHERE active=1`),
+    db.queryOne(`SELECT COALESCE(SUM(cost_price),0) as total FROM used_phones WHERE status='available'`),
+    // ── Supplier debt ──────────────────────────────────────────────────────
+    db.queryOne(`SELECT COALESCE(SUM(CASE WHEN direction!='out' THEN unit_cost*quantity ELSE 0 END),0) as we_owe, COALESCE(SUM(CASE WHEN direction='out' THEN unit_cost*quantity ELSE 0 END),0) as they_owe FROM shop_tabs WHERE settled=0`),
   ]);
 
   function buildDisc(items, phones, repairs, crSales, crRepairs) {
@@ -101,5 +108,15 @@ export default async function handler(req, res) {
     todayDiscounts,
     monthlyDiscounts,
     dailyProfit,
+    inventoryValue: {
+      products: Number(invProducts?.total || 0),
+      phones:   Number(invPhones?.total   || 0),
+      total:    Number(invProducts?.total || 0) + Number(invPhones?.total || 0),
+    },
+    supplierDebt: {
+      weOwe:   Number(supplierDebt?.we_owe   || 0),
+      theyOwe: Number(supplierDebt?.they_owe || 0),
+      net:     Number(supplierDebt?.they_owe || 0) - Number(supplierDebt?.we_owe || 0),
+    },
   });
 }

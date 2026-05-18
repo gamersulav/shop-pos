@@ -1229,6 +1229,19 @@ function RepairTab() {
                       {PAYMENTS.map(p => <option key={p}>{p}</option>)}
                     </select>
                   </div>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                    {(r.status === 'Done' || r.status === 'Delivered') && toWhatsApp(r.customer_phone) && (
+                      <a href={`https://wa.me/${toWhatsApp(r.customer_phone)}?text=${encodeURIComponent(`Hi ${r.customer_name}! 👋 Your ${r.phone_model} repair is ready for pickup at Univercell. Total: Rs ${Math.max(0, Number(r.customer_price) - Number(r.repair_discount||0)).toLocaleString()}. Thank you! 😊`)}`}
+                        target="_blank" rel="noreferrer"
+                        style={{ flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 700, borderRadius: 10, background: '#25D366', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
+                        📱 Notify Customer
+                      </a>
+                    )}
+                    <button onClick={() => printRepairReceipt(r)}
+                      style={{ flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 700, borderRadius: 10, background: 'none', border: '1.5px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}>
+                      🖨️ Print Receipt
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -2230,4 +2243,50 @@ function AlertBox({ color, text }) {
       ✅ {text}
     </div>
   );
+}
+
+function toWhatsApp(phone) {
+  if (!phone) return null;
+  const clean = phone.replace(/\D/g, '');
+  if (clean.startsWith('977')) return clean;
+  if (clean.length === 10 && clean.startsWith('9')) return '977' + clean;
+  if (clean.startsWith('0') && clean.length === 11) return '977' + clean.slice(1);
+  return clean || null;
+}
+
+function printRepairReceipt(r) {
+  const charge = Number(r.customer_price) || 0;
+  const disc   = Number(r.repair_discount) || 0;
+  const final  = Math.max(0, charge - disc);
+  const date   = r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '';
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Repair Receipt</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:monospace;font-size:13px;max-width:300px;margin:0 auto;padding:16px}
+    h2{text-align:center;font-size:16px;margin-bottom:2px}
+    .center{text-align:center;color:#555;font-size:11px;margin-bottom:8px}
+    .dash{border-top:1px dashed #000;margin:8px 0}
+    .row{display:flex;justify-content:space-between;margin-bottom:4px}
+    .bold{font-weight:bold}
+    .total{font-size:15px;font-weight:bold;margin-top:4px}
+  </style></head><body>
+  <h2>Univercell</h2>
+  <p class="center">Mobile Accessories &amp; Repair</p>
+  <div class="dash"></div>
+  <div class="row"><span>Customer</span><span class="bold">${r.customer_name || ''}</span></div>
+  ${r.customer_phone ? `<div class="row"><span>Phone</span><span>${r.customer_phone}</span></div>` : ''}
+  <div class="row"><span>Device</span><span>${r.phone_model || '—'}</span></div>
+  <div class="row"><span>Issue</span><span style="max-width:160px;text-align:right">${r.issue || '—'}</span></div>
+  <div class="row"><span>Date</span><span>${date}</span></div>
+  <div class="dash"></div>
+  ${disc > 0 ? `<div class="row"><span>Charge</span><span>Rs ${charge.toLocaleString()}</span></div><div class="row"><span>Discount</span><span>- Rs ${disc.toLocaleString()}</span></div>` : ''}
+  <div class="row total"><span>Total</span><span>Rs ${final.toLocaleString()}</span></div>
+  <div class="row"><span>Payment</span><span>${r.payment_method || 'Cash'}</span></div>
+  ${r.notes ? `<div class="dash"></div><div><span class="bold">Notes: </span>${r.notes}</div>` : ''}
+  <div class="dash"></div>
+  <p style="text-align:center;font-size:11px;margin-top:4px">Thank you for choosing Univercell!</p>
+  <script>window.onload=function(){window.print();}</script>
+  </body></html>`;
+  const w = window.open('', '_blank', 'width=400,height=620');
+  if (w) { w.document.write(html); w.document.close(); }
 }
