@@ -12,7 +12,12 @@ export default async function handler(req, res) {
     const { customer_price, cost_price, status, notes, payment_method, repair_discount,
             customer_name, customer_phone, phone_model, issue } = req.body;
     const fields = [], vals = [];
-    if (status          !== undefined) { fields.push('status=?');          vals.push(status); }
+    if (status !== undefined) {
+      fields.push('status=?'); vals.push(status);
+      const tsMap = { 'In Progress': 'in_progress_at', 'Done': 'done_at', 'Delivered': 'delivered_at', 'Returned': 'returned_at' };
+      const tsCol = tsMap[status];
+      if (tsCol) fields.push(`${tsCol}=datetime('now')`);
+    }
     if (notes           !== undefined) { fields.push('notes=?');           vals.push(notes); }
     if (payment_method  !== undefined) { fields.push('payment_method=?');  vals.push(payment_method); }
     if (repair_discount !== undefined) { fields.push('repair_discount=?'); vals.push(Math.max(0, Number(repair_discount))); }

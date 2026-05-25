@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import * as BTPrint from '../lib/btprint';
+import { enqueue, dequeue, getQueue, queueSize } from '../lib/offline-queue';
 function parseCode(raw) {
   const code = String(raw).trim().toUpperCase();
   if (/^PH\d+$/.test(code)) return { type: 'phone',   id: parseInt(code.slice(2)) };
@@ -39,22 +39,28 @@ const TABS = [
   { id: 'balance',     label: '💰 Balance' },
   { id: 'expenses',    label: '💸 Expenses' },
   { id: 'history',     label: '👤 History' },
+  { id: 'notes', label: '📝 Notes' },
 ];
 
 const PAYMENTS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay', 'Credit'];
+const SPLIT_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
 const PAYMENT_COLORS = {
   Cash: 'var(--green)', eSewa: 'var(--cyan)',
   'Bank Transfer': 'var(--purple)', Fonepay: 'var(--amber)', Credit: 'var(--red)',
 };
 const CASH_METHODS = ['Cash', 'eSewa', 'Bank Transfer', 'Fonepay'];
 const CASH_COLORS  = { Cash: 'var(--green)', eSewa: 'var(--cyan)', 'Bank Transfer': 'var(--purple)', Fonepay: 'var(--amber)' };
-const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered'];
+const STATUSES = ['Pending', 'In Progress', 'Done', 'Delivered', 'Returned'];
 const PRIMARY_TAB_IDS = ['sale', 'repair'];
 const MENU_TABS = TABS.filter(t => !PRIMARY_TAB_IDS.includes(t.id));
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 let _showToast = null;
 function showToast(msg, type = 'error') { _showToast?.(msg, type); }
+
+// ─── OFFLINE SYNC TRIGGER ─────────────────────────────────────────────────────
+let _onOfflineSave = null;
+function notifyOfflineSave() { _onOfflineSave?.(); }
 
 const NPT = { timeZone: 'Asia/Kathmandu' };
 function nptToday() { return new Date(Date.now() + (5*60+45)*60*1000).toISOString().split('T')[0]; }
@@ -72,23 +78,23 @@ function fmtDateTime(str) {
 export default function Staff() {
   const router = useRouter();
   const [tab, setTab]           = useState('sale');
+  const [mountedTabs, setMountedTabs] = useState(() => new Set(['sale']));
+  const [aiTip, setAiTip]       = useState(null);
+  const [aiTipDismissed, setAiTipDismissed] = useState(false);
+  function switchTab(id) {
+    setTab(id);
+    setMountedTabs(prev => { const s = new Set(prev); s.add(id); return s; });
+  }
   const [products, setProducts] = useState([]);
   const [phones, setPhones]     = useState([]);
   const [todayData, setTodayData] = useState(null);
   const [toastState, setToastState] = useState(null);
   const toastTimer = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isOnline, setIsOnline]       = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncStatus, setSyncStatus]   = useState('idle'); // 'idle'|'syncing'|'done'
 
-  // Bluetooth printer state (only active inside the Android APK)
-  const [btConnected,  setBtConnected]  = useState(false);
-  const [btName,       setBtName]       = useState('');
-  const [btConnecting, setBtConnecting] = useState(false);
-  const [showPicker,   setShowPicker]   = useState(false);
-  const [btDevices,    setBtDevices]    = useState([]);
-  const [btAvail,      setBtAvail]      = useState(false);
-  const [btError,      setBtError]      = useState('');
-  const [btMsg,        setBtMsg]        = useState('');
-  const [btPrinting,   setBtPrinting]   = useState(false);
 
   useEffect(() => {
     // Register global toast function
@@ -98,17 +104,70 @@ export default function Staff() {
       toastTimer.current = setTimeout(() => setToastState(null), 2800);
     };
 
-    // window.ShopBT is registered via addJavascriptInterface before any JS runs
-    if (typeof window.ShopBT !== 'undefined') setBtAvail(true);
-
-    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (!d) router.push('/');
-    });
     loadProducts();
     loadPhones();
     loadToday();
+    // Show cached tip instantly, only re-fetch if older than 1 hour
+    try {
+      const cachedTip = localStorage.getItem('pos_ai_tip');
+      const tipTime   = Number(localStorage.getItem('pos_ai_tip_time') || 0);
+      if (cachedTip && Date.now() - tipTime < 3600000) { setAiTip(cachedTip); }
+      else {
+        fetch('/api/ai/staff-tip').then(r => r.json()).then(d => {
+          if (d.tip) {
+            setAiTip(d.tip);
+            try { localStorage.setItem('pos_ai_tip', d.tip); localStorage.setItem('pos_ai_tip_time', String(Date.now())); } catch {}
+          }
+        }).catch(() => {});
+      }
+    } catch {
+      fetch('/api/ai/staff-tip').then(r => r.json()).then(d => { if (d.tip) setAiTip(d.tip); }).catch(() => {});
+    }
     const iv = setInterval(loadToday, 60000);
-    return () => { _showToast = null; clearTimeout(toastTimer.current); clearInterval(iv); };
+
+    // Offline queue
+    _onOfflineSave = () => setPendingCount(queueSize());
+    setIsOnline(navigator.onLine);
+    setPendingCount(queueSize());
+
+    async function syncQueue() {
+      const queue = getQueue();
+      if (!queue.length) return;
+      setSyncStatus('syncing');
+      let ok = 0, fail = 0;
+      for (const item of queue) {
+        try {
+          const endpoint = item.type === 'sale' ? '/api/sales' : '/api/repairs';
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item.body),
+          });
+          if (res.ok) { dequeue(item.id); ok++; }
+          else fail++;
+        } catch { fail++; }
+      }
+      setPendingCount(queueSize());
+      if (ok > 0) showToast(`Synced ${ok} offline entr${ok === 1 ? 'y' : 'ies'}`, 'success');
+      if (fail > 0) showToast(`${fail} entr${fail === 1 ? 'y' : 'ies'} failed to sync — retry manually`, 'error');
+      setSyncStatus(ok > 0 ? 'done' : 'idle');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    }
+
+    function onOnline()  { setIsOnline(true);  syncQueue(); }
+    function onOffline() { setIsOnline(false); }
+    window.addEventListener('online',  onOnline);
+    window.addEventListener('offline', onOffline);
+    if (navigator.onLine && queueSize() > 0) syncQueue();
+
+    return () => {
+      _showToast = null;
+      _onOfflineSave = null;
+      clearTimeout(toastTimer.current);
+      clearInterval(iv);
+      window.removeEventListener('online',  onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
   }, []);
 
   function loadToday() {
@@ -124,7 +183,7 @@ export default function Staff() {
   }
   function loadPhones() {
     try { const c = JSON.parse(localStorage.getItem('pos_phones') || 'null'); if (c?.length) setPhones(c); } catch {}
-    fetch('/api/phones').then(r => r.json()).then(data => {
+    fetch('/api/phones?slim=1').then(r => r.json()).then(data => {
       const avail = (data || []).filter(p => p.status === 'available' && Number(p.selling_price) > 0);
       setPhones(avail);
       try { localStorage.setItem('pos_phones', JSON.stringify(avail)); } catch {}
@@ -135,77 +194,6 @@ export default function Staff() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/');
   }
-
-  async function handleBtConnect() {
-    setBtConnecting(true);
-    setBtError('');
-    try {
-      await BTPrint.requestPermissions();
-      const devices = await BTPrint.listPaired();
-      setBtDevices(devices);
-      setShowPicker(true);
-    } catch (e) {
-      setBtError(e.message || String(e));
-    } finally {
-      setBtConnecting(false);
-    }
-  }
-
-  async function handleBtDisconnect() {
-    await BTPrint.disconnect();
-    setBtConnected(false);
-    setBtName('');
-  }
-
-  async function selectDevice(device) {
-    setShowPicker(false);
-    setBtConnecting(true);
-    setBtError('');
-    try {
-      await BTPrint.connect(device.address);
-      setBtConnected(true);
-      setBtName(device.name || device.address);
-    } catch (e) {
-      setBtError(e.message || String(e));
-    } finally {
-      setBtConnecting(false);
-    }
-  }
-
-  function showBtMsg(msg) {
-    setBtMsg(msg);
-    setTimeout(() => setBtMsg(''), 3000);
-  }
-
-  async function onPrintReceipt(receiptData) {
-    setBtPrinting(true); setBtError('');
-    try { await BTPrint.printReceipt(receiptData); showBtMsg('Receipt printed'); }
-    catch (e) { setBtError(e.message || String(e)); }
-    finally { setBtPrinting(false); }
-  }
-
-  async function onPrintProductLabel(product) {
-    setBtPrinting(true); setBtError('');
-    try { await BTPrint.printProductLabel(product); showBtMsg('Label printed'); }
-    catch (e) { setBtError(e.message || String(e)); }
-    finally { setBtPrinting(false); }
-  }
-
-
-  async function onPrintPhoneLabel(phone) {
-    setBtPrinting(true); setBtError('');
-    try { await BTPrint.printPhoneLabel(phone); showBtMsg('Label printed'); }
-    catch (e) { setBtError(e.message || String(e)); }
-    finally { setBtPrinting(false); }
-  }
-
-  async function handleTestPrint() {
-    setBtPrinting(true); setBtError('');
-    try { await BTPrint.printTest(); showBtMsg('Test sent — check printer'); }
-    catch (e) { setBtError(e.message || String(e)); }
-    finally { setBtPrinting(false); }
-  }
-
 
   return (
     <>
@@ -229,24 +217,6 @@ export default function Staff() {
             })()}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {btAvail && (
-              <>
-                <button
-                  onClick={btConnected ? handleBtDisconnect : handleBtConnect}
-                  disabled={btConnecting || btPrinting}
-                  className="btn btn-ghost btn-sm"
-                  style={{ width: 'auto', padding: '6px 10px', color: btConnected ? 'var(--green)' : 'var(--muted)', fontWeight: 700, fontSize: 12 }}>
-                  {btConnecting ? '…' : btPrinting ? '⏳' : btConnected ? `🖨 ${btName}` : '🖨'}
-                </button>
-                {btConnected && (
-                  <button onClick={handleTestPrint} disabled={btPrinting}
-                    className="btn btn-ghost btn-sm"
-                    style={{ width: 'auto', padding: '6px 8px', color: 'var(--amber)', fontWeight: 700, fontSize: 11 }}>
-                    Test
-                  </button>
-                )}
-              </>
-            )}
             <button onClick={logout} className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}>Logout</button>
           </div>
         </div>
@@ -259,7 +229,7 @@ export default function Staff() {
             <div style={{ position: 'fixed', top: 53, left: 0, right: 0, zIndex: 25, maxWidth: 480, margin: '0 auto' }}>
               <div style={{ background: 'var(--card)', borderRadius: '0 0 16px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)', overflow: 'hidden' }}>
                 {MENU_TABS.map((t, i) => (
-                  <button key={t.id} onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                  <button key={t.id} onClick={() => { switchTab(t.id); setMenuOpen(false); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 20px', textAlign: 'left',
                       background: tab === t.id ? 'rgba(0,212,255,0.1)' : 'transparent',
                       border: 'none', borderBottom: i < MENU_TABS.length - 1 ? '1px solid var(--border)' : 'none',
@@ -275,38 +245,24 @@ export default function Staff() {
           </>
         )}
 
-        {btError ? (
-          <div onClick={() => setBtError('')} style={{ background: 'var(--red)', color: '#fff', fontSize: 12, padding: '8px 16px', cursor: 'pointer' }}>
-            ⚠ {btError} (tap to dismiss)
+        {!isOnline && (
+          <div style={{ background: '#dc2626', color: '#fff', fontSize: 12, padding: '7px 16px', fontWeight: 700, textAlign: 'center', letterSpacing: 0.3 }}>
+            📵 Offline — sales & repairs will sync when reconnected{pendingCount > 0 ? ` (${pendingCount} pending)` : ''}
           </div>
-        ) : null}
-        {btMsg ? (
-          <div style={{ background: 'var(--green)', color: '#fff', fontSize: 12, padding: '8px 16px', fontWeight: 700 }}>
-            ✓ {btMsg}
+        )}
+        {isOnline && syncStatus === 'syncing' && (
+          <div style={{ background: '#d97706', color: '#fff', fontSize: 12, padding: '7px 16px', fontWeight: 700, textAlign: 'center' }}>
+            🔄 Syncing offline entries…
           </div>
-        ) : null}
-
-        {showPicker && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-            <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', maxWidth: 480 }}>
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Select Printer</div>
-              {btDevices.length === 0 ? (
-                <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
-                  No paired Bluetooth devices found.{'\n'}Pair your printer in Android Settings → Bluetooth first, then try again.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-                  {btDevices.map(d => (
-                    <button key={d.address} onClick={() => selectDevice(d)}
-                      style={{ padding: '12px 16px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{d.name || 'Unknown Device'}</div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{d.address}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <button onClick={() => setShowPicker(false)} className="btn btn-ghost btn-sm" style={{ width: '100%' }}>Cancel</button>
-            </div>
+        )}
+        {isOnline && syncStatus === 'done' && (
+          <div style={{ background: 'var(--green)', color: '#fff', fontSize: 12, padding: '7px 16px', fontWeight: 700, textAlign: 'center' }}>
+            ✓ All offline entries synced
+          </div>
+        )}
+        {isOnline && pendingCount > 0 && syncStatus === 'idle' && (
+          <div style={{ background: 'rgba(255,176,32,0.15)', color: 'var(--amber)', fontSize: 12, padding: '7px 16px', fontWeight: 700, textAlign: 'center', borderBottom: '1px solid rgba(255,176,32,0.3)' }}>
+            ⏳ {pendingCount} offline entr{pendingCount === 1 ? 'y' : 'ies'} pending sync
           </div>
         )}
 
@@ -314,7 +270,7 @@ export default function Staff() {
         <div className="tab-bar">
           {TABS.filter(t => PRIMARY_TAB_IDS.includes(t.id)).map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 13, flex: 1, minWidth: 0 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 13, flex: 1, minWidth: 0 }} onClick={() => switchTab(t.id)}>
               {t.label}
             </div>
           ))}
@@ -347,17 +303,26 @@ export default function Staff() {
           );
         })()}
 
+        {aiTip && !aiTipDismissed && (
+          <div style={{ margin: '0 16px 0', padding: '10px 14px', background: 'rgba(0,212,255,0.07)', border: '1px solid rgba(0,212,255,0.25)', borderRadius: 10, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>🤖</span>
+            <span style={{ fontSize: 13, color: 'var(--text)', flex: 1, lineHeight: 1.5 }}>{aiTip}</span>
+            <button onClick={() => setAiTipDismissed(true)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
+          </div>
+        )}
+
         <div style={{ padding: '16px' }}>
-          {tab === 'sale'        && <SaleTab products={products} phones={phones} btConnected={btConnected} onPrint={onPrintReceipt} />}
-          {tab === 'phones'      && <PhonesTab onPhoneSold={loadPhones} btConnected={btConnected} onPrintLabel={onPrintPhoneLabel} />}
-          {tab === 'repair'      && <RepairTab />}
-          {tab === 'stock'       && <StockTab products={products} />}
-          {tab === 'accessories' && <AccessoriesTab products={products} reload={loadProducts} btConnected={btConnected} onPrintLabel={onPrintProductLabel} />}
-          {tab === 'returns'     && <ReturnsTab products={products} />}
-          {tab === 'credits'     && <CreditsTab />}
-          {tab === 'balance'     && <StaffPaymentBalanceTab />}
-          {tab === 'expenses'    && <StaffExpensesTab />}
-          {tab === 'history'     && <CustomerHistoryTab />}
+          {mountedTabs.has('sale')        && <div style={{ display: tab==='sale'        ? 'block':'none' }}><SaleTab products={products} phones={phones} /></div>}
+          {mountedTabs.has('phones')      && <div style={{ display: tab==='phones'      ? 'block':'none' }}><PhonesTab onPhoneSold={loadPhones} /></div>}
+          {mountedTabs.has('repair')      && <div style={{ display: tab==='repair'      ? 'block':'none' }}><RepairTab /></div>}
+          {mountedTabs.has('stock')       && <div style={{ display: tab==='stock'       ? 'block':'none' }}><StockTab products={products} /></div>}
+          {mountedTabs.has('accessories') && <div style={{ display: tab==='accessories' ? 'block':'none' }}><AccessoriesTab products={products} reload={loadProducts} /></div>}
+          {mountedTabs.has('returns')     && <div style={{ display: tab==='returns'     ? 'block':'none' }}><ReturnsTab products={products} /></div>}
+          {mountedTabs.has('credits')     && <div style={{ display: tab==='credits'     ? 'block':'none' }}><CreditsTab /></div>}
+          {mountedTabs.has('balance')     && <div style={{ display: tab==='balance'     ? 'block':'none' }}><StaffPaymentBalanceTab /></div>}
+          {mountedTabs.has('expenses')    && <div style={{ display: tab==='expenses'    ? 'block':'none' }}><StaffExpensesTab /></div>}
+          {mountedTabs.has('history')     && <div style={{ display: tab==='history'     ? 'block':'none' }}><CustomerHistoryTab /></div>}
+          {mountedTabs.has('notes')       && <div style={{ display: tab==='notes'       ? 'block':'none' }}><NotesTab products={products} phones={phones} onPhoneChange={loadPhones} /></div>}
         </div>
 
         {/* Global toast notification */}
@@ -459,15 +424,24 @@ function PayButton({ method, selected, onClick }) {
 // ─── SALE TAB ────────────────────────────────────────────────────────────────
 const emptyItem = () => ({ type: 'accessory', productId: '', phoneId: '', qty: 1, price: 0, discount: '', name: '' });
 
-function SaleTab({ products, phones, btConnected, onPrint }) {
+function SaleTab({ products, phones }) {
   const [items, setItems]             = useState([emptyItem(), emptyItem()]);
-  const [payment, setPayment]         = useState(null);
-  const [creditCustomer, setCreditCustomer] = useState('');
+  const [payMode, setPayMode]         = useState('single');
+  const [singleMethod, setSingleMethod] = useState('');
+  const [splits, setSplits]           = useState([{ method: '', amount: '' }, { method: '', amount: '' }]);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [saving, setSaving]           = useState(false);
+  const savingRef                     = useRef(false);
   const [done, setDone]               = useState(false);
-  const [payError, setPayError]       = useState(false);
+  const [payError, setPayError]       = useState('');
   const [barcodeInput, setBarcodeInput] = useState('');
   const barcodeRef = useRef(null);
+  const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
+  const [loyaltyQuery, setLoyaltyQuery]     = useState('');
+  const [loyaltyCustomer, setLoyaltyCustomer] = useState(null);
+  const [loyaltySearching, setLoyaltySearching] = useState(false);
+  const [usePoints, setUsePoints]           = useState(false);
 
   const accItems = products.map(p => ({ id: p.id, label: p.name, price: p.selling_price, sublabel: `Rs ${p.selling_price}` }));
   const phoneItems = phones.map(p => ({ id: p.id, label: p.model, price: Number(p.selling_price), sublabel: `${p.condition} · Rs ${Number(p.selling_price).toLocaleString()}` }));
@@ -485,6 +459,11 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
   const totalDiscount = activeItems.reduce((s, i) => {
     return s + Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty));
   }, 0);
+
+  const maxLoyaltyPts = loyaltyCustomer ? Math.min(loyaltyCustomer.points, Math.floor(grandTotal / 10) * 100) : 0;
+  const loyaltyDiscount = usePoints && loyaltyCustomer && maxLoyaltyPts >= 100
+    ? Math.floor(maxLoyaltyPts / 100) * 10 : 0;
+  const finalTotal = Math.max(0, grandTotal - loyaltyDiscount);
 
   function setItem(idx, field, val) {
     setItems(prev => {
@@ -505,6 +484,26 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
       }
       return next;
     });
+  }
+
+  useEffect(() => {
+    fetch('/api/settings?key=loyalty_enabled')
+      .then(r => r.json()).then(d => setLoyaltyEnabled(d.value === '1')).catch(() => {});
+  }, []);
+
+  async function lookupLoyaltyCustomer() {
+    if (!loyaltyQuery.trim()) return;
+    setLoyaltySearching(true);
+    const r = await fetch(`/api/customers/lookup?q=${encodeURIComponent(loyaltyQuery.trim())}`);
+    setLoyaltySearching(false);
+    if (r.ok) {
+      const c = await r.json();
+      setLoyaltyCustomer(c);
+      if (!customerName.trim()) setCustomerName(c.name);
+      if (!customerPhone.trim()) setCustomerPhone(c.phone);
+    } else {
+      showToast('Customer not found. Register them first.', 'error');
+    }
   }
 
   function handleBarcode(raw) {
@@ -542,61 +541,138 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
   }
 
   async function saveSale() {
+    if (savingRef.current) return;
     if (!activeItems.length) { showToast('Add at least one item'); return; }
-    if (!payment) { setPayError(true); return; }
-    if (payment === 'Credit' && !creditCustomer.trim()) { showToast('Enter customer name for credit sale'); return; }
-    setPayError(false);
-    setSaving(true);
-    const res = await fetch('/api/sales', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: activeItems.map(i => ({
-          type: i.type,
-          productId: i.type === 'accessory' ? Number(i.productId) : undefined,
-          phoneId:   i.type === 'phone'      ? Number(i.phoneId)   : undefined,
-          qty:   i.type === 'phone' ? 1 : i.qty,
-          price: i.price,
-          itemDiscount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
-        })),
-        payment,
-        creditCustomer,
-      }),
-    });
-    const saleData = await res.json().catch(() => ({}));
-    setSaving(false);
-    if (res.ok) {
-      const receiptItems = activeItems.map(i => ({
-        name:  i.name || '?',
-        qty:   i.type === 'phone' ? 1 : Number(i.qty),
-        price: Number(i.price),
-      }));
-      setDone({ items: receiptItems, total: grandTotal, payment, discount: totalDiscount });
-      showToast(`Sale saved — Rs ${Math.round(grandTotal).toLocaleString()}`, 'success');
+    if (!customerName.trim()) { setPayError('name'); return; }
+    if (!customerPhone.trim()) { setPayError('phone'); return; }
+
+    let payForBody, splitPaymentsForBody = null;
+    if (payMode === 'single') {
+      if (!singleMethod) { setPayError('method'); return; }
+      payForBody = singleMethod;
     } else {
-      showToast(saleData.error || 'Error saving sale. Try again.');
+      const validSplits = splits.filter(s => s.method && Number(s.amount) > 0);
+      if (validSplits.length < 2) { setPayError('method'); return; }
+      const splitTotal = validSplits.reduce((s, x) => s + Number(x.amount), 0);
+      if (Math.abs(splitTotal - grandTotal) > 0.5) { setPayError('amount'); return; }
+      payForBody = validSplits[0].method;
+      splitPaymentsForBody = validSplits;
+    }
+
+    const isCredit = payMode === 'single' && singleMethod === 'Credit';
+
+    // Client-side stock check
+    for (const item of activeItems) {
+      if (item.type === 'accessory') {
+        const prod = products.find(p => String(p.id) === String(item.productId));
+        if (prod && prod.stock < (item.qty || 1)) {
+          showToast(`Not enough stock for ${prod.name}. Only ${prod.stock} left.`);
+          return;
+        }
+      }
+    }
+
+    // Warn if any accessory has no cost price (won't block sale)
+    const zeroCost = activeItems.filter(i => {
+      if (i.type !== 'accessory') return false;
+      const prod = products.find(p => String(p.id) === String(i.productId));
+      return prod && Number(prod.cost_price) === 0;
+    });
+    if (zeroCost.length > 0) {
+      showToast(`⚠ No cost price for: ${zeroCost.map(i => i.name).join(', ')} — profit will show as 0`, 'error');
+    }
+
+    const paymentLabel = splitPaymentsForBody
+      ? splitPaymentsForBody.map(s => `${s.method} Rs${Number(s.amount).toLocaleString()}`).join(' + ')
+      : singleMethod;
+
+    const saleBody = {
+      items: activeItems.map(i => ({
+        type: i.type,
+        productId: i.type === 'accessory' ? Number(i.productId) : undefined,
+        phoneId:   i.type === 'phone'      ? Number(i.phoneId)   : undefined,
+        qty:   i.type === 'phone' ? 1 : i.qty,
+        price: i.price,
+        itemDiscount: Math.min(Math.max(0, parseFloat(i.discount) || 0), i.price * (i.type === 'phone' ? 1 : i.qty)),
+      })),
+      payment: payForBody,
+      splitPayments: splitPaymentsForBody,
+      customerName,
+      customerPhone,
+      creditCustomer: isCredit ? customerName : '',
+      creditCustomerPhone: isCredit ? customerPhone : '',
+      loyaltyDiscount,
+    };
+
+    const receiptItems = activeItems.map(i => ({
+      name:  i.name || '?',
+      qty:   i.type === 'phone' ? 1 : Number(i.qty),
+      price: Number(i.price),
+    }));
+
+    // Offline path — queue and show receipt immediately
+    if (!navigator.onLine) {
+      enqueue('sale', saleBody);
+      notifyOfflineSave();
+      setDone({ items: receiptItems, total: grandTotal, payment: paymentLabel, discount: totalDiscount, customerName, offline: true });
+      showToast(`Saved offline — will sync when connected`, 'success');
+      return;
+    }
+
+    setPayError('');
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saleBody),
+      });
+      const saleData = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDone({ items: receiptItems, total: finalTotal, payment: paymentLabel, discount: totalDiscount, loyaltyDiscount, customerName });
+        showToast(`Sale saved — Rs ${Math.round(finalTotal).toLocaleString()}`, 'success');
+        if (loyaltyCustomer) {
+          fetch('/api/loyalty/award', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customer_id: loyaltyCustomer.id, sale_id: saleData.id, amount: grandTotal, loyalty_discount: loyaltyDiscount }),
+          }).catch(() => {});
+        }
+      } else {
+        showToast(saleData.error || 'Error saving sale. Try again.');
+      }
+    } catch {
+      showToast('Network error. Try again.');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   }
 
   function resetSale() {
     setItems([emptyItem(), emptyItem()]);
-    setPayment(null);
-    setCreditCustomer('');
-    setPayError(false);
+    setPayMode('single');
+    setSingleMethod('');
+    setSplits([{ method: '', amount: '' }, { method: '', amount: '' }]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setPayError('');
     setDone(false);
+    setLoyaltyQuery('');
+    setLoyaltyCustomer(null);
+    setUsePoints(false);
   }
 
   if (done) return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-      <div style={{ fontSize: 64, marginBottom: 12 }}>✅</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)' }}>Sale Saved!</div>
-      <div style={{ color: 'var(--muted)', marginTop: 6 }}>Rs {done.total?.toFixed(0)} · {done.payment}</div>
-      {btConnected && onPrint && (
-        <button onClick={() => onPrint(done)} className="btn btn-ghost"
-          style={{ marginTop: 20, width: '100%', padding: '12px 0', fontSize: 15, fontWeight: 700 }}>
-          🖨 Print Receipt
-        </button>
-      )}
+      <div style={{ fontSize: 64, marginBottom: 12 }}>{done.offline ? '📵' : '✅'}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: done.offline ? 'var(--amber)' : 'var(--green)' }}>
+        {done.offline ? 'Saved Offline!' : 'Sale Saved!'}
+      </div>
+      <div style={{ color: 'var(--muted)', marginTop: 6 }}>
+        Rs {done.total?.toFixed(0)} · {done.payment}
+        {done.offline && <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 4 }}>Will sync automatically when connected</div>}
+      </div>
       <button onClick={resetSale} className="btn btn-green"
         style={{ marginTop: 10, width: '100%', padding: '16px 0', fontSize: 17, fontWeight: 700 }}>
         + New Sale
@@ -739,31 +815,154 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
           <div style={{ borderTop: '1px solid var(--border)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 700 }}>Grand Total</span>
             <div style={{ textAlign: 'right' }}>
-              {totalDiscount > 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Discount Rs {totalDiscount.toLocaleString()}</div>}
-              <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--cyan)' }}>Rs {grandTotal.toLocaleString()}</span>
+              {totalDiscount > 0 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Item discount Rs {totalDiscount.toLocaleString()}</div>}
+              {loyaltyDiscount > 0 && <div style={{ fontSize: 11, color: 'var(--amber)' }}>Loyalty pts −Rs {loyaltyDiscount.toLocaleString()}</div>}
+              <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--cyan)' }}>Rs {finalTotal.toLocaleString()}</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Payment method */}
-      <div style={{ marginBottom: payment === 'Credit' ? 12 : 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: payError ? 'var(--red)' : 'var(--muted)' }}>
-          {payError ? '⚠ SELECT PAYMENT METHOD (required)' : 'PAYMENT METHOD'}
+      {/* Customer — always required */}
+      <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: payError === 'name' ? 'var(--red)' : 'var(--muted)' }}>
+            {payError === 'name' ? '⚠ CUSTOMER NAME (required)' : 'CUSTOMER NAME'}
+          </label>
+          <input type="text" placeholder="e.g. Ram Bahadur" value={customerName}
+            onChange={e => { setCustomerName(e.target.value); if (payError === 'name') setPayError(''); }} />
         </div>
-        <select value={payment || ''} onChange={e => { setPayment(e.target.value); setPayError(false); }} style={{ fontWeight: 700 }}>
-          <option value="" disabled>Select payment method…</option>
-          {PAYMENTS.map(p => <option key={p}>{p}</option>)}
-        </select>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: payError === 'phone' ? 'var(--red)' : 'var(--muted)' }}>
+            {payError === 'phone' ? '⚠ CUSTOMER PHONE (required)' : 'CUSTOMER PHONE'}
+          </label>
+          <input type="tel" placeholder="e.g. 98XXXXXXXX" value={customerPhone}
+            onChange={e => { setCustomerPhone(e.target.value); if (payError === 'phone') setPayError(''); }} />
+        </div>
       </div>
 
-      {payment === 'Credit' && (
+      {/* Loyalty card lookup */}
+      {loyaltyEnabled && (
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER NAME (required for credit)</label>
-          <input type="text" placeholder="Who is taking on credit?" value={creditCustomer}
-            onChange={e => setCreditCustomer(e.target.value)} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>LOYALTY CARD</div>
+          {loyaltyCustomer ? (
+            <div style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{loyaltyCustomer.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    {loyaltyCustomer.card_number} · {loyaltyCustomer.points} pts
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 9px', borderRadius: 6, color: '#000',
+                    background: loyaltyCustomer.tier === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : loyaltyCustomer.tier === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)' }}>
+                    {loyaltyCustomer.tier}
+                  </span>
+                  <button onClick={() => { setLoyaltyCustomer(null); setUsePoints(false); setLoyaltyQuery(''); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>✕</button>
+                </div>
+              </div>
+              {maxLoyaltyPts >= 100 && (
+                <button onClick={() => setUsePoints(p => !p)}
+                  style={{ marginTop: 8, width: '100%', padding: '9px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 12, fontFamily: 'inherit',
+                    border: `1.5px solid ${usePoints ? 'var(--green)' : 'var(--border)'}`,
+                    background: usePoints ? 'rgba(0,230,118,0.1)' : 'transparent',
+                    color: usePoints ? 'var(--green)' : 'var(--muted)' }}>
+                  {usePoints
+                    ? `✓ Using ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${loyaltyDiscount} off`
+                    : `Use ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${Math.floor(maxLoyaltyPts/100)*10} off`}
+                </button>
+              )}
+              {maxLoyaltyPts < 100 && loyaltyCustomer.points > 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+                  {loyaltyCustomer.points} pts — need 100 pts minimum to redeem
+                </div>
+              )}
+              {loyaltyCustomer.points === 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>No points yet — will earn from this sale</div>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input placeholder="Phone number or Card No. (AES-XXXX)"
+                value={loyaltyQuery} onChange={e => setLoyaltyQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && lookupLoyaltyCustomer()}
+                style={{ flex: 1 }} />
+              <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '10px 14px', flexShrink: 0 }} disabled={loyaltySearching}>
+                {loyaltySearching ? '…' : 'Find'}
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Payment method */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: (payError === 'method' || payError === 'amount') ? 'var(--red)' : 'var(--muted)' }}>
+          {payError === 'method' ? '⚠ SELECT PAYMENT METHOD' : payError === 'amount' ? `⚠ AMOUNTS MUST EQUAL Rs ${Math.round(grandTotal).toLocaleString()}` : 'PAYMENT METHOD'}
+        </div>
+        {payMode === 'single' ? (
+          <>
+            <select value={singleMethod || ''} onChange={e => { setSingleMethod(e.target.value); setPayError(''); }} style={{ fontWeight: 700, marginBottom: singleMethod && singleMethod !== 'Credit' ? 8 : 0 }}>
+              <option value="" disabled>Select payment method…</option>
+              {PAYMENTS.map(p => <option key={p}>{p}</option>)}
+            </select>
+            {singleMethod && singleMethod !== 'Credit' && (
+              <button onClick={() => setPayMode('split')}
+                style={{ width: '100%', padding: '9px 0', borderRadius: 10, background: 'transparent', border: '1.5px dashed var(--border)', color: 'var(--cyan)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                ÷ Split Payment
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {splits.map((s, i) => {
+              const prevAmt = splits.slice(0, i).reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+              const autoAmt = Math.max(0, grandTotal - prevAmt);
+              return (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <select value={s.method} onChange={e => setSplits(prev => prev.map((x, j) => j === i ? { ...x, method: e.target.value } : x))} style={{ flex: 1 }}>
+                    <option value="">Select…</option>
+                    {SPLIT_METHODS.map(m => <option key={m}>{m}</option>)}
+                  </select>
+                  <input
+                    type="number" min="0"
+                    value={s.amount}
+                    placeholder={String(Math.round(autoAmt))}
+                    onChange={e => { setSplits(prev => prev.map((x, j) => j === i ? { ...x, amount: e.target.value } : x)); setPayError(''); }}
+                    style={{ width: 90, textAlign: 'right' }}
+                  />
+                  {splits.length > 2 && (
+                    <button onClick={() => setSplits(prev => prev.filter((_, j) => j !== i))}
+                      style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 22, padding: '0 4px', lineHeight: 1 }}>×</button>
+                  )}
+                </div>
+              );
+            })}
+            {(() => {
+              const assigned = splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+              const rem = grandTotal - assigned;
+              const ok = Math.abs(rem) < 0.5;
+              return (
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: ok ? 'var(--green)' : 'var(--amber)' }}>
+                  {ok ? '✓ Amounts match total' : `Rs ${Math.abs(Math.round(rem)).toLocaleString()} ${rem > 0 ? 'remaining' : 'over total'}`}
+                </div>
+              );
+            })()}
+            {splits.length < 3 && (
+              <button onClick={() => setSplits(prev => [...prev, { method: '', amount: '' }])}
+                style={{ width: '100%', padding: '8px 0', borderRadius: 10, background: 'transparent', border: '1.5px dashed var(--border)', color: 'var(--muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
+                + Add Method
+              </button>
+            )}
+            <button onClick={() => { setPayMode('single'); setSingleMethod(''); setSplits([{ method: '', amount: '' }, { method: '', amount: '' }]); setPayError(''); }}
+              style={{ width: '100%', padding: '8px 0', borderRadius: 10, background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+              ← Use Single Method
+            </button>
+          </>
+        )}
+      </div>
 
       <button className="btn btn-green" onClick={saveSale} disabled={saving || !activeItems.length}
         style={{ fontSize: 17, minHeight: 58, opacity: !activeItems.length ? 0.4 : 1 }}>
@@ -774,22 +973,26 @@ function SaleTab({ products, phones, btConnected, onPrint }) {
 }
 
 // ─── PHONES TAB (stock-in only, no sell) ────────────────────────────────────
-function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
+function PhonesTab({ onPhoneSold }) {
   const [phones, setPhones]   = useState([]);
   const [view, setView]       = useState('list');
   const [saving, setSaving]     = useState(false);
   const [done, setDone]         = useState('');
   const [sortBy, setSortBy]     = useState('recents');
   const [search, setSearch]     = useState('');
+  const BLANK_STOCK = { brand: '', phoneModel: '', ram: '', storage: '', condition: 'Good', color: '', imei: '', notes: '' };
   const [showPhoneConfirm, setShowPhoneConfirm] = useState(false);
-  const BLANK_STOCK = { brand: '', phoneModel: '', ram: '', storage: '', condition: 'Good', notes: '', photos: [] };
   const [stockForm, setStockForm] = useState(BLANK_STOCK);
   const [shareToast, setShareToast]       = useState('');
   const [shareMode, setShareMode]         = useState(false);
   const [shareSelection, setShareSelection] = useState(new Set());
+  const [phonesLoading, setPhonesLoading] = useState(true);
   useEffect(() => { loadPhones(); }, []);
 
-  function loadPhones() { fetch('/api/phones').then(r => r.json()).then(setPhones); }
+  function loadPhones() {
+    setPhonesLoading(true);
+    fetch('/api/phones').then(r => r.json()).then(d => { setPhones(d); setPhonesLoading(false); });
+  }
 
   function toggleShareSelect(id) {
     setShareSelection(prev => {
@@ -821,12 +1024,6 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
   const filteredPhones = search.trim()
     ? sortedAvailable().filter(p => p.model.toLowerCase().includes(search.toLowerCase()))
     : sortedAvailable();
-
-  async function dataUrlToFile(dataUrl, name) {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    return new File([blob], name, { type: blob.type || 'image/jpeg' });
-  }
 
   function parsePhotos(p) {
     try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; }
@@ -883,21 +1080,13 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
     setTimeout(() => { setShareToast(''); exitShareMode(); }, 2200);
   }
 
-  async function addPhonePhoto(e) {
-    const files = Array.from(e.target.files || []);
-    const current = stockForm.photos || [];
-    if (current.length >= 6) { showToast('Max 6 photos'); return; }
-    const toAdd = files.slice(0, 6 - current.length);
-    const compressed = await Promise.all(toAdd.map(f => compressImage(f)));
-    setStockForm(f => ({ ...f, photos: [...(f.photos || []), ...compressed] }));
-    e.target.value = '';
-  }
-
   function reviewPhone() {
     if (!stockForm.brand.trim())     { showToast('Enter brand'); return; }
-    if (!stockForm.phoneModel.trim()){ showToast('Enter phone model'); return; }
+    if (!stockForm.phoneModel.trim()){ showToast('Enter model'); return; }
     if (!stockForm.ram)              { showToast('Select RAM'); return; }
     if (!stockForm.storage)          { showToast('Select storage'); return; }
+    if (!stockForm.color.trim())     { showToast('Enter color'); return; }
+    if (!stockForm.imei.trim())      { showToast('Enter IMEI'); return; }
     setShowPhoneConfirm(true);
   }
 
@@ -907,7 +1096,7 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
     const res = await fetch('/api/phones', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, condition: stockForm.condition, notes: stockForm.notes, photos: stockForm.photos }),
+      body: JSON.stringify({ model, condition: stockForm.condition, color: stockForm.color.trim(), imei: stockForm.imei.trim(), notes: stockForm.notes }),
     });
     setSaving(false);
     if (res.ok) {
@@ -927,141 +1116,97 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
       <div>
         <button onClick={() => setShowPhoneConfirm(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, marginBottom: 16, padding: 0 }}>← Edit</button>
         <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Confirm Before Saving</h2>
-
         <div style={{ padding: '12px 14px', background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 13, color: 'var(--red)', marginBottom: 14 }}>
-          ⚠ Check carefully — spelling and specs cannot be edited after saving. If anything is wrong, go back and fix it.
+          ⚠ Spelling and specs cannot be edited after saving. Go back if anything is wrong.
         </div>
-
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>MODEL</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>{previewModel}</div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>{previewModel}</div>
           </div>
-          <div style={{ display: 'flex', gap: 20 }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>RAM</div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.ram}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>STORAGE</div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.storage}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>CONDITION</div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.condition}</div>
-            </div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <div><div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>CONDITION</div><div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.condition}</div></div>
+            <div><div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>COLOR</div><div style={{ fontSize: 15, fontWeight: 700 }}>{stockForm.color}</div></div>
           </div>
-          {stockForm.notes ? (
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>NOTES</div>
-              <div style={{ fontSize: 13 }}>{stockForm.notes}</div>
-            </div>
-          ) : null}
-          {(stockForm.photos||[]).length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>PHOTOS ({stockForm.photos.length})</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {stockForm.photos.map((src, i) => (
-                  <img key={i} src={src} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
-                ))}
-              </div>
-            </div>
-          )}
+          <div><div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>IMEI</div><div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 1 }}>{stockForm.imei}</div></div>
+          {stockForm.notes ? <div><div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 2 }}>NOTES</div><div style={{ fontSize: 13 }}>{stockForm.notes}</div></div> : null}
         </div>
-
-        <button className="btn btn-green" onClick={stockIn} disabled={saving}
-          style={{ fontSize: 16, minHeight: 54 }}>
-          {saving ? 'Saving…' : '✅ Everything looks correct — Save Phone'}
+        <button className="btn btn-green" onClick={stockIn} disabled={saving} style={{ fontSize: 16, minHeight: 54 }}>
+          {saving ? 'Saving…' : '✅ Looks correct — Save Phone'}
         </button>
-        <button onClick={() => setShowPhoneConfirm(false)} className="btn btn-ghost"
-          style={{ marginTop: 10, width: '100%' }}>
-          ← Go back and edit
-        </button>
+        <button onClick={() => setShowPhoneConfirm(false)} className="btn btn-ghost" style={{ marginTop: 10, width: '100%' }}>← Go back and edit</button>
       </div>
     );
   }
 
   if (view === 'stockin') {
+    const chipStyle = (selected) => ({
+      minHeight: 44, padding: '0 14px', fontSize: 14, fontWeight: 700, borderRadius: 10,
+      border: '1.5px solid ' + (selected ? 'var(--cyan)' : 'var(--border)'),
+      background: selected ? 'rgba(0,212,255,0.15)' : 'transparent',
+      color: selected ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer',
+    });
     return (
       <div>
         <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, marginBottom: 16, padding: 0 }}>← Back</button>
         <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Stock In Used Phone</h2>
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>BRAND *</label>
-            <input type="text" placeholder="e.g. Apple, Samsung, Xiaomi, OnePlus"
-              value={stockForm.brand} onChange={e => setStockForm(f => ({ ...f, brand: e.target.value }))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>BRAND *</label>
+              <input type="text" placeholder="Apple, Samsung…"
+                value={stockForm.brand} onChange={e => setStockForm(f => ({ ...f, brand: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && document.getElementById('phone-model-input')?.focus()} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>MODEL *</label>
+              <input id="phone-model-input" type="text" placeholder="iPhone 15, S24…"
+                value={stockForm.phoneModel} onChange={e => setStockForm(f => ({ ...f, phoneModel: e.target.value }))} />
+            </div>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHONE MODEL *</label>
-            <input type="text" placeholder="e.g. iPhone 15 Pro Max, Galaxy S24 Ultra"
-              value={stockForm.phoneModel} onChange={e => setStockForm(f => ({ ...f, phoneModel: e.target.value }))} />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>RAM *</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>RAM *</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {['2GB','3GB','4GB','6GB','8GB','10GB','12GB','16GB'].map(v => (
-                <button key={v} type="button"
-                  onClick={() => setStockForm(f => ({ ...f, ram: v }))}
-                  style={{ padding: '6px 13px', fontSize: 13, fontWeight: 700, borderRadius: 20,
-                    border: '1.5px solid ' + (stockForm.ram === v ? 'var(--cyan)' : 'var(--border)'),
-                    background: stockForm.ram === v ? 'rgba(0,212,255,0.15)' : 'transparent',
-                    color: stockForm.ram === v ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
-                  {v}
-                </button>
+                <button key={v} type="button" onClick={() => setStockForm(f => ({ ...f, ram: v }))} style={chipStyle(stockForm.ram === v)}>{v}</button>
               ))}
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STORAGE *</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>STORAGE *</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {['16GB','32GB','64GB','128GB','256GB','512GB','1TB'].map(v => (
-                <button key={v} type="button"
-                  onClick={() => setStockForm(f => ({ ...f, storage: v }))}
-                  style={{ padding: '6px 13px', fontSize: 13, fontWeight: 700, borderRadius: 20,
-                    border: '1.5px solid ' + (stockForm.storage === v ? 'var(--cyan)' : 'var(--border)'),
-                    background: stockForm.storage === v ? 'rgba(0,212,255,0.15)' : 'transparent',
-                    color: stockForm.storage === v ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
-                  {v}
-                </button>
+                <button key={v} type="button" onClick={() => setStockForm(f => ({ ...f, storage: v }))} style={chipStyle(stockForm.storage === v)}>{v}</button>
               ))}
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CONDITION *</label>
-            <select value={stockForm.condition} onChange={e => setStockForm(f => ({ ...f, condition: e.target.value }))}>
-              <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
-            </select>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 8, fontWeight: 700 }}>CONDITION *</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {['Excellent','Good','Fair','Poor'].map(v => (
+                <button key={v} type="button" onClick={() => setStockForm(f => ({ ...f, condition: v }))} style={chipStyle(stockForm.condition === v)}>{v}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>COLOR *</label>
+              <input type="text" placeholder="e.g. Black, Blue…"
+                value={stockForm.color} onChange={e => setStockForm(f => ({ ...f, color: e.target.value }))} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>NOTES</label>
+              <input type="text" placeholder="Damage, extras…"
+                value={stockForm.notes} onChange={e => setStockForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>NOTES (Optional)</label>
-            <input type="text" placeholder="Any damage, accessories included, colour, etc."
-              value={stockForm.notes} onChange={e => setStockForm(f => ({ ...f, notes: e.target.value }))} />
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>IMEI *</label>
+            <input type="text" placeholder="15-digit IMEI number" inputMode="numeric"
+              value={stockForm.imei} onChange={e => setStockForm(f => ({ ...f, imei: e.target.value }))} />
           </div>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHOTOS ({(stockForm.photos||[]).length}/6) — Optional</label>
-            <label style={{ display: 'block', cursor: 'pointer', padding: '10px 14px', background: 'rgba(0,212,255,0.06)', border: '1.5px dashed rgba(0,212,255,0.3)', borderRadius: 10, textAlign: 'center', fontSize: 13, color: 'var(--cyan)' }}>
-              📷 Take Photo / Choose from Gallery
-              <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                onChange={addPhonePhoto} disabled={(stockForm.photos||[]).length >= 6} />
-            </label>
-            {(stockForm.photos||[]).length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                {stockForm.photos.map((src, i) => (
-                  <div key={i} style={{ position: 'relative' }}>
-                    <img src={src} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
-                    <button onClick={() => setStockForm(f => ({ ...f, photos: f.photos.filter((_, j) => j !== i) }))}
-                      style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--red)', border: 'none', color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
-            ℹ️ Price will be set by the owner before selling
-          </div>
-          <button className="btn btn-cyan" onClick={reviewPhone} disabled={saving}>
-            📱 Review & Confirm →
+          <button className="btn btn-cyan" onClick={reviewPhone} disabled={saving} style={{ minHeight: 50, fontSize: 15, fontWeight: 700 }}>
+            {saving ? 'Saving…' : '📱 Stock In'}
           </button>
         </div>
       </div>
@@ -1133,7 +1278,7 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
         </div>
       )}
 
-      {filteredPhones.length === 0 && available.length === 0 && (
+      {!phonesLoading && filteredPhones.length === 0 && available.length === 0 && (
         <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--muted)', fontSize: 14 }}>
           No priced phones in stock.<br />
           <span style={{ fontSize: 12, marginTop: 6, display: 'block', color: 'var(--cyan)' }}>Use Sale tab to record phone sales</span>
@@ -1198,8 +1343,9 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                  {p.condition}{p.notes ? ` · ${p.notes}` : ''}
+                  {p.condition}{p.color ? ` · ${p.color}` : ''}{p.notes ? ` · ${p.notes}` : ''}
                 </div>
+                {p.imei && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, letterSpacing: 0.5 }}>IMEI: {p.imei}</div>}
               </div>
             </div>
             {!shareMode && (
@@ -1208,12 +1354,6 @@ function PhonesTab({ onPhoneSold, btConnected, onPrintLabel }) {
                   style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: shareToast === p.id ? 'rgba(0,212,255,0.12)' : 'transparent', color: shareToast === p.id ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
                   📤 Share
                 </button>
-                {btConnected && (
-                  <button onClick={() => onPrintLabel(p)}
-                    style={{ padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-                    🖨 Label
-                  </button>
-                )}
                 <div style={{ flex: 1, padding: '0 14px', minHeight: 44, borderRadius: 10, border: '1.5px solid var(--border)', background: 'rgba(0,212,255,0.05)', color: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600 }}>
                   Sell via 💰 Sale tab
                 </div>
@@ -1232,7 +1372,7 @@ function RepairTab() {
   const [repairs, setRepairs]   = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showDelivered, setShowDelivered] = useState(false);
-  const [loadingList, setLoadingList]   = useState(false);
+  const [loadingList, setLoadingList]   = useState(true);
   const [updatingId, setUpdatingId]     = useState(null);
   const [discountInputs, setDiscountInputs] = useState({});
 
@@ -1284,19 +1424,32 @@ function RepairTab() {
       showToast('Device model, customer name, phone number, and issue are all required');
       return;
     }
+    const repairBody = {
+      customer_name:  form.customer,
+      customer_phone: form.customerPhone,
+      phone_model:    form.phone,
+      issue:          form.issue,
+      customer_price: parseFloat(form.customerPrice) || 0,
+      status:         form.status,
+      payment_method: form.payment,
+    };
+
+    if (!navigator.onLine) {
+      enqueue('repair', repairBody);
+      notifyOfflineSave();
+      const fakeRepair = { id: null, ...repairBody, repair_discount: 0, created_at: new Date().toISOString() };
+      setRepairs(prev => [fakeRepair, ...prev]);
+      showToast('Repair saved offline — will sync when connected', 'success');
+      setDone(true);
+      setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1200);
+      return;
+    }
+
     setSaving(true);
     const res = await fetch('/api/repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_name:  form.customer,
-        customer_phone: form.customerPhone,
-        phone_model:    form.phone,
-        issue:          form.issue,
-        customer_price: parseFloat(form.customerPrice) || 0,
-        status:         form.status,
-        payment_method: form.payment,
-      }),
+      body: JSON.stringify(repairBody),
     });
     setSaving(false);
     if (res.ok) {
@@ -1310,17 +1463,17 @@ function RepairTab() {
     } else showToast('Error saving. Try again.');
   }
 
-  // Hide delivered + paid repairs by default
+  // Hide delivered + returned repairs by default
   const activeRepairs = repairs.filter(r =>
-    r.status !== 'Delivered' ||
+    (r.status !== 'Delivered' && r.status !== 'Returned') ||
     (r.payment_method === 'Credit' && !r.credit_cleared)
   );
   const hiddenCount = repairs.length - activeRepairs.length;
   const baseRepairs  = showDelivered ? repairs : activeRepairs;
   const filtered     = statusFilter === 'all' ? baseRepairs : baseRepairs.filter(r => r.status === statusFilter);
 
-  const statusColor = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
-  const statusBg    = { Pending: 'rgba(255,176,32,0.12)', 'In Progress': 'rgba(0,212,255,0.12)', Done: 'rgba(0,230,118,0.12)', Delivered: 'rgba(112,112,160,0.12)' };
+  const statusColor = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)', Returned: 'var(--red)' };
+  const statusBg    = { Pending: 'rgba(255,176,32,0.12)', 'In Progress': 'rgba(0,212,255,0.12)', Done: 'rgba(0,230,118,0.12)', Delivered: 'rgba(112,112,160,0.12)', Returned: 'rgba(239,68,68,0.12)' };
 
   if (done) return <SuccessScreen emoji="🔧" title="Repair Added!" />;
 
@@ -1337,7 +1490,7 @@ function RepairTab() {
       {view === 'list' && (
         <div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-            {[['all','All'],['Pending','Pending'],['In Progress','In Progress'],['Done','Done'],['Delivered','Delivered']].map(([v,l]) => (
+            {[['all','All'],['Pending','Pending'],['In Progress','In Progress'],['Done','Done'],['Delivered','Delivered'],['Returned','Returned']].map(([v,l]) => (
               <button key={v} onClick={() => setStatusFilter(v)}
                 style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 20, border: '1.5px solid var(--border)', background: statusFilter === v ? 'var(--cyan)' : 'transparent', color: statusFilter === v ? '#000' : 'var(--muted)', cursor: 'pointer' }}>
                 {l}
@@ -1404,7 +1557,17 @@ function RepairTab() {
                     </div>
                   )}
 
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>{fmtDateTime(r.created_at)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: r.in_progress_at || r.done_at || r.delivered_at ? 4 : 10 }}>
+                    Received: {fmtDateTime(r.created_at)}
+                  </div>
+                  {(r.in_progress_at || r.done_at || r.delivered_at || r.returned_at) && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {r.in_progress_at && <span>In Progress: {fmtDateTime(r.in_progress_at)}</span>}
+                      {r.done_at && <span>Done: {fmtDateTime(r.done_at)}</span>}
+                      {r.delivered_at && <span>Delivered: {fmtDateTime(r.delivered_at)}</span>}
+                      {r.returned_at && <span style={{ color: 'var(--red)' }}>Returned to customer: {fmtDateTime(r.returned_at)}</span>}
+                    </div>
+                  )}
 
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>UPDATE STATUS</div>
@@ -1445,7 +1608,7 @@ function RepairTab() {
           {!loadingList && hiddenCount > 0 && (
             <button onClick={() => setShowDelivered(p => !p)}
               style={{ marginTop: 12, width: '100%', background: 'none', border: '1px solid var(--border)', borderRadius: 10, padding: '10px', color: 'var(--muted)', fontSize: 12, cursor: 'pointer' }}>
-              {showDelivered ? '▲ Hide delivered' : `▼ Show ${hiddenCount} delivered & paid`}
+              {showDelivered ? '▲ Hide completed' : `▼ Show ${hiddenCount} delivered / returned`}
             </button>
           )}
         </div>
@@ -1711,41 +1874,246 @@ function StockTab({ products }) {
 }
 
 // ─── ACCESSORIES TAB (renamed from Products) ──────────────────────────────────
-function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm]       = useState({ name: '', selling_price: '', photo: '' });
-  const [saving, setSaving]   = useState(false);
-  const [done, setDone]       = useState('');
-  async function handlePhoto(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setForm(f => ({ ...f, photo: '' }));
-    const compressed = await compressImage(file, 480, 0.6);
-    setForm(f => ({ ...f, photo: compressed }));
-    e.target.value = '';
+function AccessoriesTab({ products, reload }) {
+  const [categories, setCategories] = useState([]);
+  const [filterCat, setFilterCat]   = useState(null);
+  const [showAdd, setShowAdd]       = useState(false);
+  const [form, setForm]             = useState({ name: '', selling_price: '', category_id: '' });
+  const [saving, setSaving]         = useState(false);
+  const [done, setDone]             = useState('');
+  const [orderMode, setOrderMode]   = useState(false);
+  // { [id]: { selected: bool, qty: number } }
+  const [orderSel, setOrderSel]     = useState({});
+
+  useEffect(() => {
+    fetch('/api/categories').then(r => r.json()).then(d => setCategories(Array.isArray(d) ? d : []));
+  }, []);
+
+  function enterOrderMode() {
+    const init = {};
+    products.forEach(p => {
+      init[p.id] = { selected: p.stock <= 2, qty: Math.max(5, 10 - p.stock) };
+    });
+    setOrderSel(init);
+    setOrderMode(true);
+    setShowAdd(false);
   }
+
+  function toggleOrder(id) {
+    setOrderSel(prev => ({ ...prev, [id]: { ...prev[id], selected: !prev[id].selected } }));
+  }
+
+  function setOrderQty(id, val) {
+    setOrderSel(prev => ({ ...prev, [id]: { ...prev[id], qty: Math.max(1, parseInt(val) || 1) } }));
+  }
+
+  function sendWhatsAppOrder() {
+    const selected = products.filter(p => orderSel[p.id]?.selected);
+    if (!selected.length) { showToast('Select at least one item to order'); return; }
+    const lines = selected.map(p => `• ${p.name} — Qty: ${orderSel[p.id].qty} (in stock: ${p.stock})`).join('\n');
+    const msg = `📦 Stock Order — Univercell\n\nPlease send the following items:\n\n${lines}\n\nThank you!`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  }
+
+  const selectedCount = products.filter(p => orderSel[p.id]?.selected).length;
+  const lowCount      = products.filter(p => p.stock <= 2).length;
 
   async function addProduct() {
     if (!form.name.trim() || !form.selling_price) { showToast('Enter accessory name and selling price'); return; }
+    if (categories.length > 0 && !form.category_id) { showToast('Please select a category'); return; }
     setSaving(true);
-    const res = await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.name.trim(), selling_price: parseFloat(form.selling_price), photo: form.photo || null }) });
+    const body = { name: form.name.trim(), selling_price: parseFloat(form.selling_price) };
+    if (form.category_id) body.category_id = parseInt(form.category_id);
+    const res = await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     setSaving(false);
-    if (res.ok) { setDone(form.name); setForm({ name: '', selling_price: '', photo: '' }); setShowAdd(false); reload(); setTimeout(() => setDone(''), 3000); }
+    if (res.ok) { setDone(form.name); setForm({ name: '', selling_price: '', category_id: '' }); setShowAdd(false); reload(); setTimeout(() => setDone(''), 3000); }
     else showToast('Error saving. Try again.');
   }
+
+  // ── ORDER MODE VIEW ──────────────────────────────────────────────────────────
+  if (orderMode) {
+    const lowItems   = products.filter(p => p.stock <= 2);
+    const otherItems = products.filter(p => p.stock > 2);
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <button onClick={() => setOrderMode(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, padding: 0, flexShrink: 0 }}>← Back</button>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, flex: 1 }}>Order Stock</h2>
+          {selectedCount > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--cyan)', fontWeight: 700 }}>{selectedCount} selected</span>
+          )}
+        </div>
+
+        {lowItems.length === 0 && (
+          <div style={{ padding: '12px 14px', background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--green)', marginBottom: 14 }}>
+            ✓ No low-stock items right now
+          </div>
+        )}
+
+        {lowItems.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
+              LOW STOCK — NEEDS ORDERING ({lowItems.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {lowItems.map(p => {
+                const s = orderSel[p.id] || { selected: false, qty: 10 };
+                return (
+                  <div key={p.id} className="card"
+                    style={{ borderColor: s.selected ? 'var(--cyan)' : 'var(--border)', background: s.selected ? 'rgba(0,212,255,0.05)' : undefined, cursor: 'pointer' }}
+                    onClick={() => toggleOrder(p.id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 22, color: s.selected ? 'var(--cyan)' : 'var(--border)', lineHeight: 1, flexShrink: 0 }}>
+                        {s.selected ? '☑' : '☐'}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+                        <div style={{ fontSize: 12, marginTop: 2 }}>
+                          <span style={{ color: 'var(--red)', fontWeight: 700 }}>Stock: {p.stock}</span>
+                          <span style={{ color: 'var(--muted)', marginLeft: 8 }}>Sell: Rs {p.selling_price}</span>
+                        </div>
+                      </div>
+                      {s.selected && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>ORDER QTY</span>
+                          <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--cyan)', borderRadius: 8, overflow: 'hidden' }}>
+                            <button onClick={() => setOrderQty(p.id, s.qty - 1)}
+                              style={{ padding: '6px 10px', background: 'transparent', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 16, fontWeight: 700 }}>−</button>
+                            <input type="number" min="1" value={s.qty}
+                              onChange={e => setOrderQty(p.id, e.target.value)}
+                              style={{ width: 42, textAlign: 'center', fontWeight: 800, fontSize: 15, border: 'none', background: 'transparent', color: 'var(--text)', padding: '6px 0' }} />
+                            <button onClick={() => setOrderQty(p.id, s.qty + 1)}
+                              style={{ padding: '6px 10px', background: 'transparent', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 16, fontWeight: 700 }}>+</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {otherItems.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
+              OTHER ITEMS (tap to add to order)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {otherItems.map(p => {
+                const s = orderSel[p.id] || { selected: false, qty: 10 };
+                return (
+                  <div key={p.id} className="card"
+                    style={{ borderColor: s.selected ? 'var(--cyan)' : 'var(--border)', background: s.selected ? 'rgba(0,212,255,0.05)' : undefined, cursor: 'pointer' }}
+                    onClick={() => toggleOrder(p.id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 22, color: s.selected ? 'var(--cyan)' : 'var(--border)', lineHeight: 1, flexShrink: 0 }}>
+                        {s.selected ? '☑' : '☐'}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                          Stock: {p.stock} · Rs {p.selling_price}
+                        </div>
+                      </div>
+                      {s.selected && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--cyan)', borderRadius: 8, overflow: 'hidden' }}>
+                            <button onClick={() => setOrderQty(p.id, s.qty - 1)}
+                              style={{ padding: '6px 10px', background: 'transparent', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 16, fontWeight: 700 }}>−</button>
+                            <input type="number" min="1" value={s.qty}
+                              onChange={e => setOrderQty(p.id, e.target.value)}
+                              style={{ width: 42, textAlign: 'center', fontWeight: 800, fontSize: 15, border: 'none', background: 'transparent', color: 'var(--text)', padding: '6px 0' }} />
+                            <button onClick={() => setOrderQty(p.id, s.qty + 1)}
+                              style={{ padding: '6px 10px', background: 'transparent', border: 'none', color: 'var(--cyan)', cursor: 'pointer', fontSize: 16, fontWeight: 700 }}>+</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <div style={{ position: 'sticky', bottom: 16 }}>
+          <button
+            className="btn btn-green"
+            onClick={sendWhatsAppOrder}
+            disabled={selectedCount === 0}
+            style={{ fontSize: 16, minHeight: 54, opacity: selectedCount === 0 ? 0.4 : 1, boxShadow: selectedCount > 0 ? '0 4px 20px rgba(0,230,118,0.35)' : 'none' }}>
+            📲 Send Order on WhatsApp{selectedCount > 0 ? ` (${selectedCount} item${selectedCount !== 1 ? 's' : ''})` : ''}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── NORMAL VIEW ──────────────────────────────────────────────────────────────
+  const filteredProducts = filterCat === null ? products : products.filter(p => p.category_id === filterCat);
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Accessories</h2>
-        <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => setShowAdd(p => !p)}>
-          {showAdd ? '✕ Cancel' : '+ Add Accessory'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Accessories</h2>
+          {lowCount > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.12)', padding: '3px 8px', borderRadius: 20 }}>
+              {lowCount} low
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {lowCount > 0 && (
+            <button className="btn btn-sm" onClick={enterOrderMode}
+              style={{ width: 'auto', padding: '8px 14px', background: 'rgba(0,230,118,0.12)', border: '1.5px solid rgba(0,230,118,0.35)', color: 'var(--green)', fontWeight: 700 }}>
+              📦 Order
+            </button>
+          )}
+          <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => { setShowAdd(p => !p); setOrderMode(false); }}>
+            {showAdd ? '✕ Cancel' : '+ Add'}
+          </button>
+        </div>
       </div>
+
+      {/* Category filter chips */}
+      {categories.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          <button
+            onClick={() => setFilterCat(null)}
+            style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${filterCat === null ? 'var(--cyan)' : 'var(--border)'}`, background: filterCat === null ? 'rgba(0,212,255,0.12)' : 'transparent', color: filterCat === null ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
+            All ({products.length})
+          </button>
+          {categories.map(c => (
+            <button
+              key={c.id}
+              onClick={() => setFilterCat(filterCat === c.id ? null : c.id)}
+              style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${filterCat === c.id ? 'var(--purple)' : 'var(--border)'}`, background: filterCat === c.id ? 'rgba(176,96,255,0.12)' : 'transparent', color: filterCat === c.id ? 'var(--purple)' : 'var(--muted)', cursor: 'pointer' }}>
+              {c.name} ({Number(c.product_count)})
+            </button>
+          ))}
+        </div>
+      )}
+
       {done && <AlertBox color="green" text={`"${done}" added successfully`} />}
       {showAdd && (
         <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--cyan)' }}>New Accessory</div>
+          {categories.length > 0 ? (
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--red)', display: 'block', marginBottom: 4, fontWeight: 700 }}>CATEGORY *</label>
+              <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}>
+                <option value="">— Select category —</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
+              ⚠ No categories set up yet — ask the owner to create categories first
+            </div>
+          )}
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>ACCESSORY NAME</label>
             <input type="text" placeholder="e.g. iPhone 15 Case" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
@@ -1768,20 +2136,6 @@ function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>SELLING PRICE (Rs)</label>
             <input type="number" placeholder="0" value={form.selling_price} onChange={e => setForm(f => ({ ...f, selling_price: e.target.value }))} />
           </div>
-          <div>
-            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>PHOTO — Optional</label>
-            {form.photo ? (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <img src={form.photo} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
-                <button onClick={() => setForm(f => ({ ...f, photo: '' }))} style={{ background: 'none', border: '1.5px solid var(--border)', borderRadius: 8, color: 'var(--muted)', padding: '6px 12px', cursor: 'pointer', fontSize: 12 }}>Remove</button>
-              </div>
-            ) : (
-              <label style={{ display: 'block', cursor: 'pointer', padding: '10px 14px', background: 'rgba(0,212,255,0.06)', border: '1.5px dashed rgba(0,212,255,0.3)', borderRadius: 10, textAlign: 'center', fontSize: 13, color: 'var(--cyan)' }}>
-                📷 Take Photo / Choose from Gallery
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
-              </label>
-            )}
-          </div>
           <div style={{ padding: '10px 14px', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, fontSize: 13, color: 'var(--amber)' }}>
             ℹ️ Purchase cost will be set by the owner
           </div>
@@ -1789,27 +2143,24 @@ function AccessoriesTab({ products, reload, btConnected, onPrintLabel }) {
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {products.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No accessories yet.</div>}
-        {products.map(p => (
+        {filteredProducts.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No accessories{filterCat ? ' in this category' : ''} yet.</div>}
+        {filteredProducts.map(p => (
           <div key={p.id} className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
               {p.photo && <img src={p.photo} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, border: '1.5px solid var(--border)' }} />}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                  {p.category_name && <span style={{ fontSize: 11, color: 'var(--purple)', background: 'rgba(176,96,255,0.12)', padding: '2px 7px', borderRadius: 10 }}>{p.category_name}</span>}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                   Price: <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>Rs {p.selling_price}</span>
                   <span style={{ margin: '0 8px', color: 'var(--border)' }}>|</span>
-                  Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{p.stock}</span>
+                  Stock: <span style={{ color: p.stock <= 2 ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{p.stock}</span>
                 </div>
               </div>
-              {p.stock < 5 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
+              {p.stock <= 2 && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 700, background: 'rgba(255,51,85,0.1)', padding: '3px 8px', borderRadius: 6, flexShrink: 0 }}>LOW</span>}
             </div>
-            {btConnected && (
-              <button onClick={() => onPrintLabel(p)}
-                style={{ width: '100%', marginTop: 10, padding: '9px 0', borderRadius: 10, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--fg)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-                🖨 Print Label
-              </button>
-            )}
           </div>
         ))}
       </div>
@@ -2569,20 +2920,20 @@ function CustomerHistoryTab() {
 
       {results?.sales?.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CREDIT SALES ({results.sales.length})</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>SALES ({results.sales.length})</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {results.sales.map(s => (
               <div key={s.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{s.customer_name}</span>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: s.credit_cleared ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: s.credit_cleared ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-                    {s.credit_cleared ? 'Cleared' : 'Pending'}
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{s.customer_name || '—'}</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: s.payment_method === 'Credit' ? (s.credit_cleared ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)') : 'rgba(0,212,255,0.12)', color: s.payment_method === 'Credit' ? (s.credit_cleared ? 'var(--green)' : 'var(--red)') : 'var(--cyan)', fontWeight: 600 }}>
+                    {s.payment_method === 'Credit' ? (s.credit_cleared ? 'Credit Cleared' : 'Credit Pending') : s.payment_method}
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.items}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                   <span style={{ color: 'var(--muted)' }}>{fmtDate(s.created_at)}</span>
-                  <span style={{ fontWeight: 700, color: 'var(--amber)' }}>Rs {Number(s.total_amount).toLocaleString()}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--cyan)' }}>Rs {Number(s.total_amount).toLocaleString()}</span>
                 </div>
                 {Number(s.credit_discount) > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--red)' }}>Discount on clear: -Rs {Number(s.credit_discount).toLocaleString()}</div>
@@ -2592,6 +2943,238 @@ function CustomerHistoryTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── NOTES TAB ───────────────────────────────────────────────────────────────
+function NotesTab({ products = [], phones = [], onPhoneChange = () => {} }) {
+  const [items, setItems]         = useState([]);
+  const [filter, setFilter]       = useState('out');
+  const [loading, setLoading]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [resolving, setResolving] = useState({});
+  const [soldOpen, setSoldOpen]   = useState({});
+  const [soldAmt, setSoldAmt]     = useState({});
+  const [soldPayment, setSoldPayment] = useState({});
+  const [availablePhones, setAvailablePhones] = useState([]);
+  const [form, setForm]           = useState({
+    person_name: '', person_phone: '',
+    item_type: 'phone', phone_id: '', product_id: '', custom_item: '', notes: ''
+  });
+
+  useEffect(() => { load(); }, [filter]);
+  useEffect(() => { loadAvailablePhones(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/consignments?status=${filter}`);
+    if (r.ok) setItems(await r.json());
+    setLoading(false);
+  }
+
+  async function loadAvailablePhones() {
+    const r = await fetch('/api/phones');
+    if (r.ok) {
+      const data = await r.json();
+      setAvailablePhones((data || []).filter(p => p.status === 'available'));
+    }
+  }
+
+  function derivedItemName() {
+    if (form.item_type === 'phone') {
+      const p = availablePhones.find(p => String(p.id) === String(form.phone_id));
+      return p ? `${p.model} (${p.condition})` : '';
+    }
+    if (form.item_type === 'accessory') {
+      const p = products.find(p => String(p.id) === String(form.product_id));
+      return p ? p.name : '';
+    }
+    return form.custom_item;
+  }
+
+  function derivedPrice() {
+    if (form.item_type === 'phone') {
+      const p = availablePhones.find(p => String(p.id) === String(form.phone_id));
+      return p ? Number(p.selling_price) : 0;
+    }
+    if (form.item_type === 'accessory') {
+      const p = products.find(p => String(p.id) === String(form.product_id));
+      return p ? Number(p.selling_price) : 0;
+    }
+    return 0;
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    const item_name = derivedItemName();
+    if (!form.person_name.trim() || !item_name.trim()) { showToast('Person name and item required', 'error'); return; }
+    setSaving(true);
+    const r = await fetch('/api/consignments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_name: form.person_name.trim(), person_phone: form.person_phone.trim(), item_name, unit_price: derivedPrice(), notes: form.notes.trim(), phone_id: form.item_type === 'phone' ? Number(form.phone_id) || null : null, product_id: form.item_type === 'accessory' ? Number(form.product_id) || null : null, quantity: 1 }),
+    });
+    setSaving(false);
+    if (!r.ok) { showToast('Failed to save', 'error'); return; }
+    showToast('Recorded', 'success');
+    setForm({ person_name: '', person_phone: '', item_type: 'phone', phone_id: '', product_id: '', custom_item: '', notes: '' });
+    loadAvailablePhones();
+    onPhoneChange();
+    if (filter === 'out' || filter === 'all') load();
+  }
+
+  async function markSold(id) {
+    setResolving(p => ({ ...p, [id]: true }));
+    await fetch(`/api/consignments/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'sold', amount_received: Number(soldAmt[id]) || 0, payment_method: soldPayment[id] || 'Cash' }),
+    });
+    setResolving(p => ({ ...p, [id]: false }));
+    setSoldOpen(p => ({ ...p, [id]: false }));
+    onPhoneChange();
+    load();
+  }
+
+  async function markReturned(id) {
+    setResolving(p => ({ ...p, [id]: true }));
+    await fetch(`/api/consignments/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'returned', amount_received: 0 }),
+    });
+    setResolving(p => ({ ...p, [id]: false }));
+    loadAvailablePhones();
+    onPhoneChange();
+    load();
+  }
+
+  function fmtDate(iso) { return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); }
+
+  const pendingCount = items.filter(i => i.status === 'out').length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 style={{ fontWeight: 800, fontSize: 18 }}>Notes</h2>
+
+      {/* Add form */}
+      <div className="card">
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Record Item Given Out</div>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input placeholder="Person name *" value={form.person_name} onChange={e => setForm(p => ({ ...p, person_name: e.target.value }))} />
+            <input placeholder="Phone number" value={form.person_phone} onChange={e => setForm(p => ({ ...p, person_phone: e.target.value }))} />
+          </div>
+
+          {/* Item type toggle */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {[['phone','📱 Phone'],['accessory','🏷 Item'],['custom','✏ Custom']].map(([v,l]) => (
+              <button key={v} type="button" onClick={() => setForm(p => ({ ...p, item_type: v, phone_id: '', product_id: '', custom_item: '' }))}
+                className="btn btn-sm"
+                style={{ padding: '8px 4px', fontSize: 12, background: form.item_type===v ? 'var(--cyan)' : 'transparent', color: form.item_type===v ? '#000' : 'var(--text)', border: `1.5px solid ${form.item_type===v ? 'var(--cyan)' : 'var(--border)'}` }}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {form.item_type === 'phone' && (
+            <select value={form.phone_id} onChange={e => setForm(p => ({ ...p, phone_id: e.target.value }))} style={{ background: 'var(--card)', color: 'var(--text)', border: '1.5px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14, width: '100%' }}>
+              <option value="">Select phone…</option>
+              {availablePhones.map(p => <option key={p.id} value={p.id}>{p.model} — {p.condition}{Number(p.selling_price) > 0 ? ` — Rs ${Number(p.selling_price).toLocaleString()}` : ' — (unpriced)'}</option>)}
+            </select>
+          )}
+
+          {form.item_type === 'accessory' && (
+            <select value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))} style={{ background: 'var(--card)', color: 'var(--text)', border: '1.5px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14, width: '100%' }}>
+              <option value="">Select item…</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name} — Rs {p.selling_price}</option>)}
+            </select>
+          )}
+
+          {form.item_type === 'custom' && (
+            <input placeholder="Item name *" value={form.custom_item} onChange={e => setForm(p => ({ ...p, custom_item: e.target.value }))} />
+          )}
+
+          <input placeholder="Notes (optional)" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+          <button type="submit" className="btn btn-cyan" style={{ fontWeight: 700 }} disabled={saving}>{saving ? '…' : 'Give Out'}</button>
+        </form>
+      </div>
+
+      {/* Filter */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+        {[['out','Pending'],['sold','Sold'],['returned','Returned'],['all','All']].map(([v,l]) => (
+          <button key={v} onClick={() => setFilter(v)} className="btn btn-sm"
+            style={{ padding: '8px 4px', fontSize: 12, background: filter===v ? 'var(--cyan)' : 'transparent', color: filter===v ? '#000' : 'var(--text)', border: `1.5px solid ${filter===v ? 'var(--cyan)' : 'var(--border)'}` }}>
+            {l}{v==='out' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)' }}>Loading…</div>}
+      {!loading && items.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Nothing here</div>}
+
+      {!loading && items.map(item => (
+        <div key={item.id} className="card" style={{ border: item.status==='out' ? '1.5px solid rgba(255,176,32,0.4)' : '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{item.person_name}</div>
+              {item.person_phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.person_phone}</div>}
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+              background: item.status==='out' ? 'rgba(255,176,32,0.2)' : item.status==='sold' ? 'rgba(0,230,118,0.15)' : 'rgba(112,112,160,0.15)',
+              color: item.status==='out' ? 'var(--amber)' : item.status==='sold' ? 'var(--green)' : 'var(--muted)' }}>
+              {item.status==='out' ? 'PENDING' : item.status==='sold' ? 'SOLD' : 'RETURNED'}
+            </span>
+          </div>
+
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{item.item_name}</div>
+          {item.unit_price > 0 && <div style={{ fontSize: 13, color: 'var(--cyan)' }}>Rs {Number(item.unit_price).toLocaleString()}</div>}
+          {item.notes && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{item.notes}</div>}
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            {fmtDate(item.given_at)}{item.given_by_name ? ` · ${item.given_by_name}` : ''}
+            {item.resolved_at && ` · Closed ${fmtDate(item.resolved_at)}`}
+          </div>
+          {item.status==='sold' && Number(item.amount_received) > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--green)', marginTop: 4, fontWeight: 700 }}>Received: Rs {Number(item.amount_received).toLocaleString()}</div>
+          )}
+
+          {item.status === 'out' && (
+            <div style={{ marginTop: 12 }}>
+              {soldOpen[item.id] ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <select value={soldPayment[item.id] || 'Cash'}
+                      onChange={e => setSoldPayment(p => ({ ...p, [item.id]: e.target.value }))}
+                      style={{ flex: 1, background: 'var(--card)', color: 'var(--text)', border: '1.5px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}>
+                      {['Cash','eSewa','Bank Transfer','Fonepay','Credit'].map(m => <option key={m}>{m}</option>)}
+                    </select>
+                    <button onClick={() => setSoldOpen(p => ({ ...p, [item.id]: false }))} className="btn btn-ghost btn-sm" style={{ padding: '10px 12px' }}>✕</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="number" placeholder={`Amount (Rs ${Number(item.unit_price).toLocaleString()})`}
+                      value={soldAmt[item.id] || ''} onChange={e => setSoldAmt(p => ({ ...p, [item.id]: e.target.value }))}
+                      style={{ flex: 1 }} autoFocus />
+                    <button onClick={() => markSold(item.id)} className="btn btn-green btn-sm" style={{ whiteSpace: 'nowrap', padding: '10px 16px' }} disabled={resolving[item.id]}>
+                      {resolving[item.id] ? '…' : '✓ Confirm'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                  <button onClick={() => setSoldOpen(p => ({ ...p, [item.id]: true }))}
+                    style={{ padding: '13px 0', borderRadius: 12, border: 'none', background: 'var(--green)', color: '#000', fontWeight: 800, fontSize: 15, cursor: 'pointer', letterSpacing: 0.3 }}
+                    disabled={resolving[item.id]}>
+                    ✓ SOLD
+                  </button>
+                  <button onClick={() => markReturned(item.id)}
+                    style={{ padding: '13px 0', borderRadius: 12, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                    disabled={resolving[item.id]}>
+                    ↩ Back
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

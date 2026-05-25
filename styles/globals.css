@@ -146,6 +146,7 @@ select option { background: #12122a; }
 .badge-progress { background: rgba(0,212,255,0.15);   color: var(--cyan);  }
 .badge-done     { background: rgba(0,230,118,0.15);   color: var(--green); }
 .badge-delivered{ background: rgba(176,96,255,0.15);  color: var(--purple);}
+.badge-returned { background: rgba(239,68,68,0.15);   color: var(--red);   }
 
 /* payment selector */
 .pay-btn {

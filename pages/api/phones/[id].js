@@ -74,7 +74,35 @@ export default async function handler(req, res) {
   // ── Owner: delete phone entry ─────────────────────────────────────────────
   if (req.method === 'DELETE') {
     if (session.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
-    await db.run('DELETE FROM used_phones WHERE id=?', [id]);
+
+    await db.tx(async (tx) => {
+      const phone = await tx.queryOne('SELECT * FROM used_phones WHERE id=?', [id]);
+      await tx.run('DELETE FROM used_phones WHERE id=?', [id]);
+
+      if (phone?.sold_in_sale) {
+        const saleId = phone.sold_in_sale;
+        // Remove this phone's sale_item (match by name to avoid wiping other phones in same sale)
+        await tx.run(
+          `DELETE FROM sale_items WHERE id = (
+            SELECT id FROM sale_items
+            WHERE sale_id=? AND product_id IS NULL AND product_name=?
+            LIMIT 1
+          )`,
+          [saleId, phone.model]
+        );
+        const { c } = await tx.queryOne('SELECT COUNT(*) as c FROM sale_items WHERE sale_id=?', [saleId]);
+        if (Number(c) === 0) {
+          await tx.run('DELETE FROM sales WHERE id=?', [saleId]);
+        } else {
+          const row = await tx.queryOne(
+            'SELECT COALESCE(SUM(unit_price * quantity - COALESCE(item_discount,0)), 0) as t FROM sale_items WHERE sale_id=?',
+            [saleId]
+          );
+          await tx.run('UPDATE sales SET total_amount=? WHERE id=?', [Number(row?.t || 0), saleId]);
+        }
+      }
+    });
+
     return res.json({ ok: true });
   }
 

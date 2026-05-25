@@ -11,9 +11,11 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.97.1",
     "@capacitor/android": "^4.8.2",
     "@capacitor/core": "^4.8.2",
     "@ducanh2912/next-pwa": "^10.2.9",
+    "@google/generative-ai": "^0.24.1",
     "@libsql/client": "^0.14.0",
     "bcryptjs": "^2.4.3",
     "bluetooth-serial": "^1.0.0",

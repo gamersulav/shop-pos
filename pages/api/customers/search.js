@@ -21,14 +21,14 @@ export default async function handler(req, res) {
       [like, like]
     ),
     db.query(
-      `SELECT s.id, s.credit_customer as customer_name, s.total_amount,
-              s.credit_discount, s.credit_cleared, s.created_at,
+      `SELECT s.id, COALESCE(NULLIF(s.customer_name,''), s.credit_customer) as customer_name,
+              s.total_amount, s.payment_method, s.credit_discount, s.credit_cleared, s.created_at,
               GROUP_CONCAT(si.product_name || ' x' || si.quantity, ', ') as items
        FROM sales s
        JOIN sale_items si ON si.sale_id = s.id
-       WHERE s.payment_method='Credit' AND s.credit_customer LIKE ?
+       WHERE (s.credit_customer LIKE ? OR s.customer_name LIKE ?)
        GROUP BY s.id ORDER BY s.created_at DESC LIMIT 20`,
-      [like]
+      [like, like]
     ),
   ]);
 

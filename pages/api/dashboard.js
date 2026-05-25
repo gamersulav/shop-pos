@@ -1,8 +1,9 @@
 import { getDb } from '../../lib/db';
 import { getSession } from '../../lib/auth';
 
-const NPT_TODAY = "date('now', '+5 hours', '+45 minutes')";
-const NPT_MONTH = "strftime('%Y-%m', 'now', '+5 hours', '+45 minutes')";
+const NPT_TODAY      = "date('now', '+5 hours', '+45 minutes')";
+const NPT_MONTH      = "strftime('%Y-%m', 'now', '+5 hours', '+45 minutes')";
+const NPT_LAST_MONTH = "strftime('%Y-%m', 'now', '+5 hours', '+45 minutes', '-1 month')";
 function nptDate(col)  { return `date(${col}, '+5 hours', '+45 minutes')`; }
 function nptMonth(col) { return `strftime('%Y-%m', ${col}, '+5 hours', '+45 minutes')`; }
 
@@ -25,6 +26,7 @@ export default async function handler(req, res) {
     dailySales, dailyRepairs, dailyExp30,
     invProducts, invPhones,
     supplierDebt,
+    lmSales, lmSalesProfit, lmReturns, lmRepairs, lmExp,
   ] = await Promise.all([
     // ── Today ──────────────────────────────────────────────────────────────
     db.queryOne(`SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY}`),
@@ -68,6 +70,12 @@ export default async function handler(req, res) {
     db.queryOne(`SELECT COALESCE(SUM(cost_price),0) as total FROM used_phones WHERE status='available'`),
     // ── Supplier debt ──────────────────────────────────────────────────────
     db.queryOne(`SELECT COALESCE(SUM(CASE WHEN direction!='out' THEN unit_cost*quantity ELSE 0 END),0) as we_owe, COALESCE(SUM(CASE WHEN direction='out' THEN unit_cost*quantity ELSE 0 END),0) as they_owe FROM shop_tabs WHERE settled=0`),
+    // ── Last month ─────────────────────────────────────────────────────────────
+    db.queryOne(`SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales FROM sales WHERE ${nptMonth('created_at')} = ${NPT_LAST_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_LAST_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(return_amount),0) as revenue, COALESCE(SUM(return_profit),0) as profit FROM sales_returns WHERE ${nptMonth('created_at')} = ${NPT_LAST_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue, COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit FROM repairs WHERE status IN ('Done','Delivered') AND ${nptMonth('created_at')} = ${NPT_LAST_MONTH}`),
+    db.queryOne(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE category='expense' AND ${nptMonth('expense_date')} = ${NPT_LAST_MONTH}`),
   ]);
 
   function buildDisc(items, phones, repairs, crSales, crRepairs) {
@@ -83,6 +91,9 @@ export default async function handler(req, res) {
   const todayPro  = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit  || 0) - Number(todayCreditDiscs?.total || 0);
   const rev       = Number(monthly?.revenue   || 0) - Number(monthlyReturns?.revenue || 0);
   const profit    = Number(monthlyProfit?.profit || 0) - Number(monthlyReturns?.profit || 0) - Number(monthlyCreditDiscs?.total || 0);
+  const lmRev    = Number(lmSales?.revenue || 0) + Number(lmRepairs?.revenue || 0) - Number(lmReturns?.revenue || 0);
+  const lmGross  = Number(lmSalesProfit?.profit || 0) + Number(lmRepairs?.profit || 0) - Number(lmReturns?.profit || 0);
+  const lmExpAmt = Number(lmExp?.total || 0);
   const todayExpTotal   = Number(todayExp?.total   || 0);
   const monthlyExpTotal = Number(monthlyExp?.total || 0);
 
@@ -96,10 +107,11 @@ export default async function handler(req, res) {
     .sort((a, b) => b.day.localeCompare(a.day))
     .slice(0, 30);
 
-  res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
-    today:   { revenue: todayRev, grossProfit: todayPro, expenses: todayExpTotal, profit: todayPro - todayExpTotal, sales: Number(today?.sales || 0), items: Number(todayItems?.items || 0) },
-    monthly: { revenue: rev, grossProfit: profit, expenses: monthlyExpTotal, profit: profit - monthlyExpTotal, sales: Number(monthly?.sales || 0), margin: rev > 0 ? ((profit - monthlyExpTotal) / rev) * 100 : 0 },
+    today:     { revenue: todayRev, grossProfit: todayPro, expenses: todayExpTotal, profit: todayPro - todayExpTotal, sales: Number(today?.sales || 0), items: Number(todayItems?.items || 0) },
+    monthly:   { revenue: rev, grossProfit: profit, expenses: monthlyExpTotal, profit: profit - monthlyExpTotal, sales: Number(monthly?.sales || 0), margin: rev > 0 ? ((profit - monthlyExpTotal) / rev) * 100 : 0 },
+    lastMonth: { revenue: lmRev, grossProfit: lmGross, expenses: lmExpAmt, profit: lmGross - lmExpAmt, sales: Number(lmSales?.sales || 0) },
     payments,
     topProducts,
     repairStats,

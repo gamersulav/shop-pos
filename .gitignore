@@ -13,3 +13,5 @@ public/sw.js.map
 public/workbox-*.js.map
 
 .vercel
+.env*.local
+.claude/

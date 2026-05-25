@@ -17,9 +17,12 @@ const TABS = [
   { id: 'phones',    label: '📱 Phones' },
   { id: 'costs',     label: '💲 Costs' },
   { id: 'repairs',   label: '🔧 Repairs' },
-  { id: 'credits',   label: '💳 Credits' },
-  { id: 'expenses',  label: '💸 Expenses' },
-  { id: 'cash',      label: '💰 Cash' },
+  { id: 'sales',     label: '🛍 Sales' },
+  { id: 'credits',     label: '💳 Credits' },
+  { id: 'notes', label: '📝 Notes' },
+  { id: 'expenses',    label: '💸 Expenses' },
+  { id: 'cash',        label: '💰 Cash' },
+  { id: 'loyalty',     label: '🎁 Loyalty' },
 ];
 const PRIMARY_TAB_IDS = ['dash', 'analytics', 'cash'];
 const MENU_TABS = TABS.filter(t => !PRIMARY_TAB_IDS.includes(t.id));
@@ -27,19 +30,26 @@ const MENU_TABS = TABS.filter(t => !PRIMARY_TAB_IDS.includes(t.id));
 export default function Owner() {
   const router = useRouter();
   const [tab, setTab] = useState('dash');
+  const [mountedTabs, setMountedTabs] = useState(() => new Set(['dash']));
   const [products, setProducts] = useState([]);
   const [showChangePw, setShowChangePw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  function switchTab(id) {
+    setTab(id);
+    setMountedTabs(prev => { const s = new Set(prev); s.add(id); return s; });
+  }
+
   useEffect(() => {
-    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (!d || d.role !== 'owner') { router.push('/'); }
-    });
     loadProducts();
   }, []);
 
   function loadProducts() {
-    fetch('/api/products').then(r => r.json()).then(setProducts);
+    try { const c = JSON.parse(localStorage.getItem('pos_products') || 'null'); if (c?.length) setProducts(c); } catch {}
+    fetch('/api/products').then(r => r.json()).then(data => {
+      setProducts(data);
+      try { localStorage.setItem('pos_products', JSON.stringify(data)); } catch {}
+    });
   }
 
   async function logout() {
@@ -81,7 +91,7 @@ export default function Owner() {
             <div style={{ position: 'fixed', top: 53, left: 0, right: 0, zIndex: 25, maxWidth: 520, margin: '0 auto' }}>
               <div style={{ background: 'var(--card)', borderRadius: '0 0 16px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)', overflow: 'hidden' }}>
                 {MENU_TABS.map((t, i) => (
-                  <button key={t.id} onClick={() => { setTab(t.id); setMenuOpen(false); }}
+                  <button key={t.id} onClick={() => { switchTab(t.id); setMenuOpen(false); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 20px', textAlign: 'left',
                       background: tab === t.id ? 'rgba(176,96,255,0.1)' : 'transparent',
                       border: 'none', borderBottom: i < MENU_TABS.length - 1 ? '1px solid var(--border)' : 'none',
@@ -104,23 +114,26 @@ export default function Owner() {
         <div className="tab-bar">
           {TABS.filter(t => PRIMARY_TAB_IDS.includes(t.id)).map(t => (
             <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`}
-              style={{ fontSize: 11, flex: 1, minWidth: 0 }} onClick={() => setTab(t.id)}>
+              style={{ fontSize: 11, flex: 1, minWidth: 0 }} onClick={() => switchTab(t.id)}>
               {t.label}
             </div>
           ))}
         </div>
 
-        {/* Tab content */}
+        {/* Tab content — keep-alive: mount once, hide/show with CSS */}
         <div style={{ padding: '16px' }}>
-          {tab === 'dash'      && <DashboardTab />}
-          {tab === 'analytics' && <AnalyticsTab />}
-          {tab === 'products'  && <ProductsTab products={products} reload={loadProducts} />}
-          {tab === 'phones'    && <OwnerPhonesTab />}
-          {tab === 'costs'     && <CostsTab products={products} />}
-          {tab === 'repairs'   && <RepairsTab />}
-          {tab === 'credits'   && <OwnerCreditsTab />}
-          {tab === 'expenses'  && <OwnerExpensesTab />}
-          {tab === 'cash'      && <CashTab />}
+          {mountedTabs.has('dash')      && <div style={{ display: tab==='dash'      ? 'block':'none' }}><DashboardTab /></div>}
+          {mountedTabs.has('analytics') && <div style={{ display: tab==='analytics' ? 'block':'none' }}><AnalyticsTab /></div>}
+          {mountedTabs.has('products')  && <div style={{ display: tab==='products'  ? 'block':'none' }}><ProductsTab products={products} reload={loadProducts} /></div>}
+          {mountedTabs.has('phones')    && <div style={{ display: tab==='phones'    ? 'block':'none' }}><OwnerPhonesTab /></div>}
+          {mountedTabs.has('costs')     && <div style={{ display: tab==='costs'     ? 'block':'none' }}><CostsTab products={products} /></div>}
+          {mountedTabs.has('repairs')   && <div style={{ display: tab==='repairs'   ? 'block':'none' }}><RepairsTab /></div>}
+          {mountedTabs.has('sales')     && <div style={{ display: tab==='sales'     ? 'block':'none' }}><SalesHistoryTab /></div>}
+          {mountedTabs.has('credits')   && <div style={{ display: tab==='credits'   ? 'block':'none' }}><OwnerCreditsTab /></div>}
+          {mountedTabs.has('notes')     && <div style={{ display: tab==='notes'     ? 'block':'none' }}><NotesTab isOwner /></div>}
+          {mountedTabs.has('expenses')  && <div style={{ display: tab==='expenses'  ? 'block':'none' }}><OwnerExpensesTab /></div>}
+          {mountedTabs.has('cash')      && <div style={{ display: tab==='cash'      ? 'block':'none' }}><CashTab /></div>}
+          {mountedTabs.has('loyalty')   && <div style={{ display: tab==='loyalty'   ? 'block':'none' }}><LoyaltyOwnerTab /></div>}
         </div>
       </div>
     </>
@@ -187,13 +200,24 @@ function DashboardTab() {
   const [todayActuals, setTodayActuals] = useState(null);
   const [inputs, setInputs] = useState({ phonesQty: '', accessoriesAmt: '', repairsAmt: '' });
   const [savedKey, setSavedKey] = useState('');
+  const [aiInsights, setAiInsights] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/dashboard').then(r => r.json()).then(setData);
-    const iv = setInterval(() => fetch('/api/dashboard').then(r => r.json()).then(setData), 30000);
+    const iv = setInterval(() => fetch('/api/dashboard').then(r => r.json()).then(setData), 120000);
     loadToday();
+    loadInsights();
     return () => clearInterval(iv);
   }, []);
+
+  function loadInsights() {
+    setAiLoading(true);
+    fetch('/api/ai/owner-insights').then(r => r.json()).then(d => {
+      setAiInsights(d.insights || null);
+      setAiLoading(false);
+    }).catch(() => setAiLoading(false));
+  }
 
   function loadToday() {
     fetch('/api/today').then(r => r.json()).then(d => {
@@ -215,9 +239,9 @@ function DashboardTab() {
 
   if (!data) return <LoadingState />;
 
-  const { today, monthly, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit, inventoryValue, supplierDebt } = data;
+  const { today, monthly, lastMonth, payments, topProducts, repairStats, activeRepairs, phoneStats, todayDiscounts, monthlyDiscounts, dailyProfit, inventoryValue, supplierDebt } = data;
 
-  const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)' };
+  const repairStatusColors = { Pending: 'var(--amber)', 'In Progress': 'var(--cyan)', Done: 'var(--green)', Delivered: 'var(--muted)', Returned: 'var(--red)' };
 
   const targetRows = [
     { key: 'target_phones_qty',      label: '📱 Phones',      unit: 'units', stateKey: 'phonesQty',      actual: todayActuals?.phonesQty,      target: todayActuals?.targets?.phonesQty,      fmt: v => `${v}` },
@@ -262,6 +286,36 @@ function DashboardTab() {
         })}
       </div>
 
+      {/* AI Insights */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <SectionLabel>🤖 AI INSIGHTS</SectionLabel>
+          <button onClick={loadInsights} disabled={aiLoading}
+            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '3px 10px', fontSize: 11, color: 'var(--muted)', cursor: 'pointer', opacity: aiLoading ? 0.5 : 1 }}>
+            {aiLoading ? '…' : '↺ Refresh'}
+          </button>
+        </div>
+        {aiLoading && !aiInsights && (
+          <div style={{ padding: '14px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, fontSize: 13, color: 'var(--muted)' }}>
+            Analyzing your data…
+          </div>
+        )}
+        {aiInsights && (
+          <div style={{ padding: '14px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12 }}>
+            {aiInsights.split('\n').filter(l => l.trim()).map((line, i) => (
+              <div key={i} style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text)', marginBottom: i < aiInsights.split('\n').filter(l=>l.trim()).length - 1 ? 10 : 0 }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+        {!aiLoading && !aiInsights && (
+          <div style={{ padding: '14px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 12, fontSize: 13, color: 'var(--muted)' }}>
+            AI insights not available — add ANTHROPIC_API_KEY to enable.
+          </div>
+        )}
+      </div>
+
       {/* Today */}
       <div>
         <SectionLabel>TODAY</SectionLabel>
@@ -287,6 +341,34 @@ function DashboardTab() {
           <StatCard val={monthly.sales}                            lbl="Sales"        color="var(--purple)" />
         </div>
       </div>
+
+      {/* Last month comparison */}
+      {lastMonth && (
+        <div>
+          <SectionLabel>LAST MONTH</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {[
+              ['Revenue',    `Rs ${Math.round(lastMonth.revenue).toLocaleString()}`,    monthly.revenue,    lastMonth.revenue,    'var(--cyan)'],
+              ['Gross Profit', `Rs ${Math.round(lastMonth.grossProfit).toLocaleString()}`, monthly.grossProfit, lastMonth.grossProfit, 'var(--green)'],
+              ['Expenses',   `Rs ${Math.round(lastMonth.expenses).toLocaleString()}`,   monthly.expenses,   lastMonth.expenses,   'var(--red)'],
+              ['Net Profit', `Rs ${Math.round(lastMonth.profit).toLocaleString()}`,     monthly.profit,     lastMonth.profit,     'var(--green)'],
+            ].map(([lbl, val, cur, prev, color]) => {
+              const diff = prev > 0 ? ((cur - prev) / prev * 100) : null;
+              return (
+                <div key={lbl} className="stat-card">
+                  <div className="val" style={{ color, fontSize: 16 }}>{val}</div>
+                  <div className="lbl">{lbl}</div>
+                  {diff !== null && (
+                    <div style={{ fontSize: 11, marginTop: 3, color: diff >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
+                      {diff >= 0 ? '▲' : '▼'} {Math.abs(diff).toFixed(1)}% vs this month
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Inventory valuation */}
       {inventoryValue && (
@@ -515,12 +597,39 @@ function DashboardTab() {
 
 // ─── PRODUCTS TAB ─────────────────────────────────────────────────────────────
 function ProductsTab({ products, reload }) {
+  const [categories, setCategories] = useState([]);
+  const [filterCat, setFilterCat] = useState(null);
+  const [newCatName, setNewCatName] = useState('');
+  const [catSaving, setCatSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newProd, setNewProd] = useState({ name: '', selling_price: '', cost_price: '', stock: '' });
+  const [newProd, setNewProd] = useState({ name: '', selling_price: '', cost_price: '', stock: '', category_id: '' });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [printing, setPrinting] = useState(null);
+
+  useEffect(() => { loadCats(); }, []);
+
+  function loadCats() {
+    fetch('/api/categories').then(r => r.json()).then(d => setCategories(Array.isArray(d) ? d : []));
+  }
+
+  async function addCategory() {
+    if (!newCatName.trim() || catSaving) return;
+    setCatSaving(true);
+    const r = await fetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCatName.trim() }) });
+    setCatSaving(false);
+    if (r.ok) { setNewCatName(''); loadCats(); }
+    else alert('That category name already exists');
+  }
+
+  async function deleteCategory(id) {
+    if (!confirm('Delete category? Items will become uncategorized.')) return;
+    await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+    if (filterCat === id) setFilterCat(null);
+    loadCats();
+    reload();
+  }
 
   async function printLabel(p) {
     setPrinting(p.id);
@@ -540,11 +649,12 @@ function ProductsTab({ products, reload }) {
         selling_price: parseFloat(newProd.selling_price),
         cost_price: parseFloat(newProd.cost_price) || 0,
         stock: parseInt(newProd.stock) || 0,
+        category_id: newProd.category_id ? parseInt(newProd.category_id) : null,
       }),
     });
     setSaving(false);
     setShowAdd(false);
-    setNewProd({ name: '', selling_price: '', cost_price: '', stock: '' });
+    setNewProd({ name: '', selling_price: '', cost_price: '', stock: '', category_id: '' });
     reload();
   }
 
@@ -566,10 +676,65 @@ function ProductsTab({ products, reload }) {
     reload();
   }
 
+  const uncatCount = products.filter(p => !p.category_id).length;
+  const displayed = filterCat === null
+    ? products
+    : filterCat === 'none'
+      ? products.filter(p => !p.category_id)
+      : products.filter(p => p.category_id === filterCat);
+
   return (
     <div>
+      {/* Category management */}
+      <div className="card" style={{ marginBottom: 14, padding: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>CATEGORIES</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button
+            onClick={() => setFilterCat(null)}
+            style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${filterCat === null ? 'var(--cyan)' : 'var(--border)'}`, background: filterCat === null ? 'rgba(0,212,255,0.12)' : 'transparent', color: filterCat === null ? 'var(--cyan)' : 'var(--muted)', cursor: 'pointer' }}>
+            All ({products.length})
+          </button>
+          {categories.map(c => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'stretch' }}>
+              <button
+                onClick={() => setFilterCat(c.id)}
+                style={{ fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: '20px 0 0 20px', border: `1.5px solid ${filterCat === c.id ? 'var(--purple)' : 'var(--border)'}`, borderRight: 'none', background: filterCat === c.id ? 'rgba(176,96,255,0.12)' : 'transparent', color: filterCat === c.id ? 'var(--purple)' : 'var(--muted)', cursor: 'pointer' }}>
+                {c.name} ({Number(c.product_count)})
+              </button>
+              <button
+                onClick={() => deleteCategory(c.id)}
+                style={{ padding: '5px 8px', borderRadius: '0 20px 20px 0', border: `1.5px solid ${filterCat === c.id ? 'var(--purple)' : 'var(--border)'}`, borderLeft: 'none', background: filterCat === c.id ? 'rgba(176,96,255,0.12)' : 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>
+                ×
+              </button>
+            </div>
+          ))}
+          {uncatCount > 0 && (
+            <button
+              onClick={() => setFilterCat('none')}
+              style={{ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${filterCat === 'none' ? 'var(--amber)' : 'var(--border)'}`, background: filterCat === 'none' ? 'rgba(255,176,32,0.12)' : 'transparent', color: filterCat === 'none' ? 'var(--amber)' : 'var(--muted)', cursor: 'pointer' }}>
+              Uncategorized ({uncatCount})
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={newCatName}
+            onChange={e => setNewCatName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCategory()}
+            placeholder="New category name…"
+            style={{ flex: 1, minWidth: 0 }}
+          />
+          <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 14px', flexShrink: 0 }} onClick={addCategory} disabled={!newCatName.trim() || catSaving}>
+            {catSaving ? '…' : '+ Add'}
+          </button>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Products</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+          {filterCat === null ? 'Products' : filterCat === 'none' ? 'Uncategorized' : (categories.find(c => c.id === filterCat)?.name || 'Products')}
+          {filterCat !== null && <span style={{ fontWeight: 400, fontSize: 13, color: 'var(--muted)', marginLeft: 6 }}>({displayed.length})</span>}
+        </h2>
         <button className="btn btn-cyan btn-sm" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => setShowAdd(p => !p)}>
           {showAdd ? '✕ Cancel' : '+ Add Product'}
         </button>
@@ -578,6 +743,13 @@ function ProductsTab({ products, reload }) {
       {showAdd && (
         <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--cyan)', marginBottom: 4 }}>New Product</div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CATEGORY</label>
+            <select value={newProd.category_id} onChange={e => setNewProd(p => ({ ...p, category_id: e.target.value }))}>
+              <option value="">— No category —</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
           {[['Name', 'name', 'text'], ['Selling Price (Rs)', 'selling_price', 'number'], ['Cost Price (Rs)', 'cost_price', 'number'], ['Opening Stock', 'stock', 'number']].map(([lbl, key, type]) => (
             <div key={key}>
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
@@ -590,7 +762,6 @@ function ProductsTab({ products, reload }) {
         </div>
       )}
 
-      {/* Delete confirmation */}
       {confirmDelete && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 340 }}>
@@ -608,11 +779,23 @@ function ProductsTab({ products, reload }) {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {products.map(p => (
+        {displayed.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+            {filterCat !== null ? 'No products in this category.' : 'No products yet.'}
+          </div>
+        )}
+        {displayed.map(p => (
           <div key={p.id} className="card">
             {editing?.id === p.id ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Editing: {p.name}</div>
+                <div>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CATEGORY</label>
+                  <select value={editing.category_id || ''} onChange={e => setEditing(ed => ({ ...ed, category_id: e.target.value ? parseInt(e.target.value) : null }))}>
+                    <option value="">— No category —</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
                 {[['Selling Price', 'selling_price'], ['Cost Price', 'cost_price'], ['Stock', 'stock']].map(([lbl, key]) => (
                   <div key={key}>
                     <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
@@ -626,23 +809,26 @@ function ProductsTab({ products, reload }) {
               </div>
             ) : (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                    {p.category_name && <span style={{ fontSize: 11, color: 'var(--purple)', background: 'rgba(176,96,255,0.12)', padding: '2px 7px', borderRadius: 10 }}>{p.category_name}</span>}
+                  </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                     Sell: <span style={{ color: 'var(--cyan)' }}>Rs {p.selling_price}</span>
                     <span style={{ margin: '0 6px' }}>·</span>
                     Cost: <span style={{ color: 'var(--green)' }}>Rs {p.cost_price}</span>
                     <span style={{ margin: '0 6px' }}>·</span>
-                    Stock: <span style={{ color: p.stock < 5 ? 'var(--red)' : 'var(--amber)' }}>{p.stock}</span>
+                    Stock: <span style={{ color: p.stock <= 2 ? 'var(--red)' : 'var(--amber)' }}>{p.stock}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 10px' }}
                     onClick={() => printLabel(p)} disabled={printing === p.id} title="Print label">
                     {printing === p.id ? '…' : '🖨'}
                   </button>
                   <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '6px 12px' }}
-                    onClick={() => setEditing({ id: p.id, selling_price: p.selling_price, cost_price: p.cost_price, stock: p.stock })}>
+                    onClick={() => setEditing({ id: p.id, selling_price: p.selling_price, cost_price: p.cost_price, stock: p.stock, category_id: p.category_id || '' })}>
                     Edit
                   </button>
                   <button className="btn btn-sm" style={{ width: 'auto', padding: '6px 10px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)' }}
@@ -660,24 +846,122 @@ function ProductsTab({ products, reload }) {
 }
 
 // ─── OWNER PHONES TAB ─────────────────────────────────────────────────────────
+function PhoneCard({ p, editing, setEditing, saving, savePrice, setConfirmDelete }) {
+  const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
+  return (
+    <div className="card">
+      {editing?.id === p.id ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Pricing: {p.model}</div>
+          {[['Cost Price (Rs)', 'cost_price', 'number'], ['Selling Price (Rs)', 'selling_price', 'number']].map(([lbl, key, type]) => (
+            <div key={key}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
+              <input type={type} value={editing[key]} onChange={e => setEditing(ed => ({ ...ed, [key]: e.target.value }))} />
+            </div>
+          ))}
+          {p.status === 'sold' && (
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>DISCOUNT GIVEN (Rs)</label>
+              <input type="number" min="0" value={editing.sale_discount ?? 0}
+                onChange={e => setEditing(ed => ({ ...ed, sale_discount: e.target.value }))} />
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CONDITION</label>
+            <select value={editing.condition} onChange={e => setEditing(ed => ({ ...ed, condition: e.target.value }))}>
+              <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>NOTES</label>
+            <input type="text" value={editing.notes} onChange={e => setEditing(ed => ({ ...ed, notes: e.target.value }))} placeholder="Optional notes..." />
+          </div>
+          {editing.cost_price && editing.selling_price && Number(editing.selling_price) > 0 && (
+            <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.1)', borderRadius: 6, fontSize: 13 }}>
+              Margin: <strong style={{ color: 'var(--green)' }}>Rs {(Number(editing.selling_price) - Number(editing.cost_price)).toFixed(0)}</strong>
+              {Number(editing.cost_price) > 0 && (
+                <span style={{ color: 'var(--muted)', marginLeft: 8 }}>
+                  ({(((Number(editing.selling_price) - Number(editing.cost_price)) / Number(editing.cost_price)) * 100).toFixed(1)}%)
+                </span>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-green btn-sm" style={{ flex: 1 }} onClick={() => savePrice(p.id)} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Prices'}
+            </button>
+            <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              {photos.length > 0 && (
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <img src={photos[0]} alt="" style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)', display: 'block' }} />
+                  {photos.length > 1 && (
+                    <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 4px', borderRadius: 4, lineHeight: 1.4 }}>
+                      +{photos.length - 1}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.model}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{p.condition}{p.color ? ` · ${p.color}` : ''}{p.notes ? ` · ${p.notes}` : ''}</div>
+                {p.imei && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, letterSpacing: 0.5 }}>IMEI: {p.imei}</div>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
+                onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
+                {Number(p.selling_price) ? 'Edit' : '+ Price'}
+              </button>
+              <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
+                onClick={() => setConfirmDelete({ id: p.id, model: p.model })}>Del</button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+            <span>Cost: <strong style={{ color: 'var(--amber)' }}>Rs {Number(p.cost_price).toFixed(0)}</strong></span>
+            {Number(p.selling_price) ? (
+              <>
+                <span>Sell: <strong style={{ color: 'var(--cyan)' }}>Rs {Number(p.selling_price).toFixed(0)}</strong></span>
+                <span>Profit: <strong style={{ color: 'var(--green)' }}>Rs {(Number(p.selling_price) - Number(p.cost_price) - (p.status === 'sold' ? Number(p.sale_discount || 0) : 0)).toFixed(0)}</strong></span>
+              </>
+            ) : (
+              <span style={{ color: 'var(--amber)' }}>⚠ Not priced yet</span>
+            )}
+          </div>
+          {p.status === 'sold' && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 12 }}>
+              {p.sold_at && <span>Sold {fmtDate(p.sold_at)}</span>}
+              {Number(p.sale_discount) > 0 && <span style={{ color: 'var(--amber)' }}>Discount: Rs {Number(p.sale_discount).toLocaleString()}</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OwnerPhonesTab() {
   const [phones, setPhones] = useState([]);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [view, setView] = useState('available'); // 'available' | 'sold'
-  const [printing, setPrinting] = useState(null);
+  const [view, setView] = useState('available'); // 'available' | 'sold' | 'out'
+  const [openMonths, setOpenMonths] = useState({});
+  const [openYears, setOpenYears]   = useState({});
+  function toggleMonth(k) { setOpenMonths(s => ({ ...s, [k]: !s[k] })); }
+  function toggleYear(y)  { setOpenYears(s =>  ({ ...s, [y]:  !s[y]  })); }
 
-  async function printLabel(p) {
-    setPrinting(p.id);
-    try { const BT = await import('../lib/btprint'); await BT.printPhoneLabel(p); }
-    catch (e) { alert(e.message || 'Print failed'); }
-    finally { setPrinting(null); }
-  }
+  const [phonesLoading, setPhonesLoading] = useState(true);
 
   useEffect(() => { loadPhones(); }, []);
   function loadPhones() {
-    fetch('/api/phones').then(r => r.json()).then(setPhones);
+    setPhonesLoading(true);
+    fetch('/api/phones').then(r => r.json()).then(d => { setPhones(d); setPhonesLoading(false); });
   }
 
   async function savePrice(id) {
@@ -695,8 +979,15 @@ function OwnerPhonesTab() {
       }),
     });
     setSaving(false);
+    setPhones(prev => prev.map(p => p.id === id ? {
+      ...p,
+      cost_price:    parseFloat(editing.cost_price)    || 0,
+      selling_price: parseFloat(editing.selling_price) || 0,
+      condition:     editing.condition,
+      notes:         editing.notes,
+      sale_discount: parseFloat(editing.sale_discount) || 0,
+    } : p));
     setEditing(null);
-    loadPhones();
   }
 
   async function deletePhone(id) {
@@ -705,17 +996,42 @@ function OwnerPhonesTab() {
     loadPhones();
   }
 
-  const available = phones.filter(p => p.status === 'available');
-  const sold      = phones.filter(p => p.status === 'sold');
+  const available    = phones.filter(p => p.status === 'available');
+  const consignment  = phones.filter(p => p.status === 'consignment');
+  const sold         = phones.filter(p => p.status === 'sold').sort((a, b) => new Date(b.sold_at || b.created_at) - new Date(a.sold_at || a.created_at));
   const needsPricing = available.filter(p => !Number(p.selling_price));
-  const readyToSell  = available.filter(p =>  Number(p.selling_price));
-  const displayed    = view === 'available' ? available : sold;
+  const displayed    = view === 'out' ? consignment : view !== 'sold' ? available : null;
+
+  const MNAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function soldKey(p) {
+    const d = new Date((p.sold_at || p.created_at).replace(' ', 'T') + (p.sold_at?.includes('T') ? '' : 'Z'));
+    const npt = new Date(d.getTime() + (5*60+45)*60*1000);
+    return { y: npt.getUTCFullYear(), m: npt.getUTCMonth() };
+  }
+  const nowNpt  = new Date(Date.now() + (5*60+45)*60*1000);
+  const curY    = nowNpt.getUTCFullYear();
+  const curM    = nowNpt.getUTCMonth();
+
+  const soldGroups = (() => {
+    const map = {};
+    sold.forEach(p => {
+      const { y, m } = soldKey(p);
+      const k = `${y}-${m}`;
+      if (!map[k]) map[k] = { y, m, phones: [] };
+      map[k].phones.push(p);
+    });
+    return Object.values(map).sort((a, b) => b.y !== a.y ? b.y - a.y : b.m - a.m);
+  })();
+
+  const thisMonthGroup  = soldGroups.find(g => g.y === curY && g.m === curM);
+  const prevMonthGroups = soldGroups.filter(g => !(g.y === curY && g.m === curM));
+  const prevYears = [...new Set(prevMonthGroups.filter(g => g.y < curY).map(g => g.y))].sort((a,b) => b-a);
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Used Phones</h2>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{available.length} available · {sold.length} sold</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{available.length} available · {consignment.length > 0 ? `${consignment.length} out · ` : ''}{sold.length} sold</div>
       </div>
 
       {needsPricing.length > 0 && (
@@ -725,8 +1041,8 @@ function OwnerPhonesTab() {
       )}
 
       {/* View toggle */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['available', `Available (${available.length})`], ['sold', `Sold (${sold.length})`]].map(([v, lbl]) => (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[['available', `Available (${available.length})`], ...(consignment.length > 0 ? [['out', `Out (${consignment.length})`]] : []), ['sold', `Sold (${sold.length})`]].map(([v, lbl]) => (
           <button key={v} onClick={() => setView(v)}
             className={`btn btn-sm ${view === v ? 'btn-cyan' : 'btn-ghost'}`}
             style={{ flex: 1 }}>
@@ -752,126 +1068,95 @@ function OwnerPhonesTab() {
         </div>
       )}
 
-      {displayed.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-          {view === 'available' ? 'No phones in stock' : 'No phones sold yet'}
-        </div>
+      {/* Available / Out list */}
+      {view !== 'sold' && (
+        <>
+          {!phonesLoading && displayed.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+              {view === 'available' ? 'No phones in stock' : 'No phones out on consignment'}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {displayed.map(p => <PhoneCard key={p.id} p={p} editing={editing} setEditing={setEditing} saving={saving} savePrice={savePrice} setConfirmDelete={setConfirmDelete} />)}
+          </div>
+        </>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {displayed.map(p => {
-          const photos = (() => { try { return p.photos ? JSON.parse(p.photos) : []; } catch { return []; } })();
-          return (
-          <div key={p.id} className="card">
-            {editing?.id === p.id ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Pricing: {p.model}</div>
-                {[['Cost Price (Rs)', 'cost_price', 'number'], ['Selling Price (Rs)', 'selling_price', 'number']].map(([lbl, key, type]) => (
-                  <div key={key}>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
-                    <input type={type} value={editing[key]} onChange={e => setEditing(ed => ({ ...ed, [key]: e.target.value }))} />
-                  </div>
-                ))}
-                {p.status === 'sold' && (
-                  <div>
-                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>DISCOUNT GIVEN (Rs)</label>
-                    <input type="number" min="0" value={editing.sale_discount ?? 0}
-                      onChange={e => setEditing(ed => ({ ...ed, sale_discount: e.target.value }))} />
-                  </div>
-                )}
-                <div>
-                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CONDITION</label>
-                  <select value={editing.condition} onChange={e => setEditing(ed => ({ ...ed, condition: e.target.value }))}>
-                    <option>Excellent</option><option>Good</option><option>Fair</option><option>Poor</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>NOTES</label>
-                  <input type="text" value={editing.notes} onChange={e => setEditing(ed => ({ ...ed, notes: e.target.value }))} placeholder="Optional notes..." />
-                </div>
-                {editing.cost_price && editing.selling_price && Number(editing.selling_price) > 0 && (
-                  <div style={{ padding: '8px 12px', background: 'rgba(16,185,129,0.1)', borderRadius: 6, fontSize: 13 }}>
-                    Margin: <strong style={{ color: 'var(--green)' }}>
-                      Rs {(Number(editing.selling_price) - Number(editing.cost_price)).toFixed(0)}
-                    </strong>
-                    {Number(editing.cost_price) > 0 && (
-                      <span style={{ color: 'var(--muted)', marginLeft: 8 }}>
-                        ({(((Number(editing.selling_price) - Number(editing.cost_price)) / Number(editing.cost_price)) * 100).toFixed(1)}%)
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-green btn-sm" style={{ flex: 1 }} onClick={() => savePrice(p.id)} disabled={saving}>
-                    {saving ? 'Saving…' : 'Save Prices'}
-                  </button>
-                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setEditing(null)}>Cancel</button>
-                </div>
+      {/* Sold — grouped by month/year */}
+      {view === 'sold' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {!phonesLoading && sold.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No phones sold yet</div>
+          )}
+
+          {/* This month — always expanded */}
+          {thisMonthGroup && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--cyan)', letterSpacing: 1, padding: '6px 0 8px', textTransform: 'uppercase' }}>
+                {MNAMES[curM]} {curY} · {thisMonthGroup.phones.length} sold
               </div>
-            ) : (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    {photos.length > 0 && (
-                      <div style={{ position: 'relative', flexShrink: 0 }}>
-                        <img src={photos[0]} alt="" style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)', display: 'block' }} />
-                        {photos.length > 1 && (
-                          <span style={{ position: 'absolute', bottom: 3, right: 3, background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 4px', borderRadius: 4, lineHeight: 1.4 }}>
-                            +{photos.length - 1}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{p.model}</div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                        {p.condition}
-                        {p.notes ? ` · ${p.notes}` : ''}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    {p.status === 'available' && (
-                      <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 8px', fontSize: 12 }}
-                        onClick={() => printLabel(p)} disabled={printing === p.id} title="Print label">
-                        {printing === p.id ? '…' : '🖨'}
-                      </button>
-                    )}
-                    <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
-                      onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
-                      {Number(p.selling_price) ? 'Edit' : '+ Price'}
-                    </button>
-                    <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
-                      onClick={() => setConfirmDelete({ id: p.id, model: p.model })}>
-                      Del
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
-                  <span>Cost: <strong style={{ color: 'var(--amber)' }}>Rs {Number(p.cost_price).toFixed(0)}</strong></span>
-                  {Number(p.selling_price) ? (
-                    <>
-                      <span>Sell: <strong style={{ color: 'var(--cyan)' }}>Rs {Number(p.selling_price).toFixed(0)}</strong></span>
-                      <span>Profit: <strong style={{ color: 'var(--green)' }}>Rs {(Number(p.selling_price) - Number(p.cost_price) - (p.status === 'sold' ? Number(p.sale_discount || 0) : 0)).toFixed(0)}</strong></span>
-                    </>
-                  ) : (
-                    <span style={{ color: 'var(--amber)' }}>⚠ Not priced yet</span>
-                  )}
-                </div>
-                {p.status === 'sold' && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 12 }}>
-                    {p.sold_at && <span>Sold {fmtDate(p.sold_at)}</span>}
-                    {Number(p.sale_discount) > 0 && (
-                      <span style={{ color: 'var(--amber)' }}>Discount given: Rs {Number(p.sale_discount).toLocaleString()}</span>
-                    )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {thisMonthGroup.phones.map(p => <PhoneCard key={p.id} p={p} editing={editing} setEditing={setEditing} saving={saving} savePrice={savePrice} setConfirmDelete={setConfirmDelete} />)}
+              </div>
+            </div>
+          )}
+
+          {/* Previous months in current year */}
+          {prevMonthGroups.filter(g => g.y === curY).map(g => {
+            const k = `${g.y}-${g.m}`;
+            const open = openMonths[k];
+            return (
+              <div key={k}>
+                <button onClick={() => toggleMonth(k)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, cursor: 'pointer', color: 'var(--text)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{MNAMES[g.m]} {g.y}</span>
+                  <span style={{ fontSize: 13, color: 'var(--muted)' }}>{g.phones.length} sold &nbsp;{open ? '▲' : '▼'}</span>
+                </button>
+                {open && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+                    {g.phones.map(p => <PhoneCard key={p.id} p={p} editing={editing} setEditing={setEditing} saving={saving} savePrice={savePrice} setConfirmDelete={setConfirmDelete} />)}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-          );
-        })}
-      </div>
+            );
+          })}
+
+          {/* Previous years */}
+          {prevYears.map(y => {
+            const yearGroups = prevMonthGroups.filter(g => g.y === y);
+            const yearTotal  = yearGroups.reduce((s, g) => s + g.phones.length, 0);
+            const yOpen = openYears[y];
+            return (
+              <div key={y}>
+                <button onClick={() => toggleYear(y)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 10, cursor: 'pointer', color: 'var(--text)' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{y}</span>
+                  <span style={{ fontSize: 13, color: 'var(--muted)' }}>{yearTotal} sold &nbsp;{yOpen ? '▲' : '▼'}</span>
+                </button>
+                {yOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, paddingLeft: 8 }}>
+                    {yearGroups.map(g => {
+                      const k = `${g.y}-${g.m}`;
+                      const open = openMonths[k];
+                      return (
+                        <div key={k}>
+                          <button onClick={() => toggleMonth(k)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 9, cursor: 'pointer', color: 'var(--text)' }}>
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{MNAMES[g.m]} {g.y}</span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{g.phones.length} sold &nbsp;{open ? '▲' : '▼'}</span>
+                          </button>
+                          {open && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+                              {g.phones.map(p => <PhoneCard key={p.id} p={p} editing={editing} setEditing={setEditing} saving={saving} savePrice={savePrice} setConfirmDelete={setConfirmDelete} />)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -901,9 +1186,10 @@ function CostsTab({ products }) {
 function StockCostsPanel() {
   const [entries, setEntries] = useState([]);
   const [saving, setSaving] = useState({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/stock').then(r => r.json()).then(setEntries);
+    fetch('/api/stock').then(r => r.json()).then(d => { setEntries(d); setLoading(false); });
   }, []);
 
   function setEntryCost(id, val) {
@@ -927,7 +1213,7 @@ function StockCostsPanel() {
       <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 14px' }}>
         Set the cost price for each stock entry to calculate profit accurately.
       </p>
-      {entries.length === 0 && (
+      {!loading && entries.length === 0 && (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No stock entries yet</div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1134,10 +1420,11 @@ function RepairsTab() {
   const [repairs, setRepairs] = useState([]);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadRepairs(); }, []);
   function loadRepairs() {
-    fetch('/api/repairs').then(r => r.json()).then(setRepairs);
+    fetch('/api/repairs').then(r => r.json()).then(d => { setRepairs(d); setLoading(false); });
   }
 
   async function saveRepair(id) {
@@ -1156,7 +1443,7 @@ function RepairsTab() {
     <div>
       <h2 style={{ margin: '0 0 14px', fontSize: 18, fontWeight: 700 }}>Repairs</h2>
 
-      {repairs.length === 0 && (
+      {!loading && repairs.length === 0 && (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No repairs yet</div>
       )}
 
@@ -1174,7 +1461,7 @@ function RepairsTab() {
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>STATUS</label>
                   <select value={editing.status} onChange={e => setEditing(ed => ({ ...ed, status: e.target.value }))}>
-                    <option>Pending</option><option>In Progress</option><option>Done</option><option>Delivered</option>
+                    <option>Pending</option><option>In Progress</option><option>Done</option><option>Delivered</option><option>Returned</option>
                   </select>
                 </div>
                 <div>
@@ -1235,6 +1522,227 @@ function RepairsTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── SALES HISTORY TAB ───────────────────────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function SalesHistoryTab() {
+  const [items, setItems]       = useState([]);
+  const [filter, setFilter]     = useState('today');
+  const [loading, setLoading]   = useState(false);
+  const [expanded, setExpanded] = useState({});
+  const [delConfirm, setDelConfirm] = useState(null); // sale_id pending confirm
+  const [deleting, setDeleting]     = useState({});   // sale_id → true while in-flight
+
+  useEffect(() => { loadSales(); setExpanded({}); }, [filter]);
+
+  async function loadSales() {
+    setLoading(true);
+    const r = await fetch(`/api/sales?filter=${filter}&expand=items`);
+    const d = await r.json();
+    setItems(Array.isArray(d) ? d : []);
+    setLoading(false);
+  }
+
+  async function deleteSale(saleId) {
+    setDeleting(p => ({ ...p, [saleId]: true }));
+    await fetch(`/api/sales/${saleId}`, { method: 'DELETE' });
+    setDeleting(p => ({ ...p, [saleId]: false }));
+    setDelConfirm(null);
+    loadSales();
+  }
+
+  function nptDate(iso) { return new Date(new Date(iso).getTime() + (5*60+45)*60000).toISOString().split('T')[0]; }
+  function fmtDay(ds)   { return new Date(ds + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', timeZone:'UTC' }); }
+  function fmtTime(iso) { return new Date(new Date(iso).getTime() + (5*60+45)*60000).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }); }
+  function getMonday(ds) {
+    const d = new Date(ds + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - (d.getUTCDay() === 0 ? 6 : d.getUTCDay() - 1));
+    return d.toISOString().split('T')[0];
+  }
+  function fmtAmt(n) {
+    const abs = Math.abs(n);
+    if (abs >= 1000000) return `${(n/1000000).toFixed(1)}M`;
+    if (abs >= 1000)    return `${(n/1000).toFixed(1)}k`;
+    return n.toFixed(0);
+  }
+  function itemAmt(it) { return Math.max(0, Number(it.unit_price) * Number(it.quantity) - Number(it.item_discount)); }
+  function payLabel(it) {
+    try { const sp = it.split_payments ? JSON.parse(it.split_payments) : null; return sp?.length > 1 ? sp.map(p => p.method).join('+') : it.payment_method; }
+    catch { return it.payment_method; }
+  }
+
+  const grouped = {};
+  items.forEach(it => { const d = nptDate(it.created_at); if (!grouped[d]) grouped[d] = []; grouped[d].push(it); });
+  const days = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+  const totalRev  = items.reduce((s, it) => s + itemAmt(it), 0);
+  const totalDisc = items.reduce((s, it) => s + Number(it.item_discount), 0);
+
+  function toggleDay(day) { setExpanded(p => ({ ...p, [day]: !(p[day] !== false) })); }
+
+  const weekGroups = {};
+  days.forEach(day => {
+    const wk = getMonday(day);
+    if (!weekGroups[wk]) weekGroups[wk] = { days: [], total: 0, count: 0 };
+    weekGroups[wk].days.push(day);
+    weekGroups[wk].total += grouped[day].reduce((s, it) => s + itemAmt(it), 0);
+    weekGroups[wk].count += grouped[day].length;
+  });
+  const weekKeys = Object.keys(weekGroups).sort((a, b) => b.localeCompare(a));
+
+  const monthGroups = {};
+  days.forEach(day => {
+    const mo = day.slice(0, 7);
+    if (!monthGroups[mo]) monthGroups[mo] = { days: [], total: 0, count: 0 };
+    monthGroups[mo].days.push(day);
+    monthGroups[mo].total += grouped[day].reduce((s, it) => s + itemAmt(it), 0);
+    monthGroups[mo].count += grouped[day].length;
+  });
+  const monthKeys = Object.keys(monthGroups).sort((a, b) => b.localeCompare(a));
+
+  function renderDay(day, collapsible) {
+    const dayItems = grouped[day];
+    const dayTotal = dayItems.reduce((s, it) => s + itemAmt(it), 0);
+    const open = expanded[day] !== false;
+    return (
+      <div key={day} style={{ marginBottom: 4 }}>
+        <div onClick={() => collapsible && toggleDay(day)}
+          style={{ padding:'10px 14px', background:'rgba(176,96,255,0.08)', borderRadius:10, border:'1px solid rgba(176,96,255,0.25)', marginBottom:(!collapsible||open)?4:0, display:'flex', justifyContent:'space-between', alignItems:'center', cursor:collapsible?'pointer':'default', userSelect:'none' }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:13 }}>{fmtDay(day)}</div>
+            <div style={{ fontSize:11, color:'var(--muted)' }}>{dayItems.length} item{dayItems.length!==1?'s':''} sold</div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <div style={{ fontWeight:800, fontSize:15, color:'var(--purple)' }}>Rs {fmtAmt(dayTotal)}</div>
+            {collapsible && <span style={{ color:'var(--muted)', fontSize:11 }}>{open?'▲':'▼'}</span>}
+          </div>
+        </div>
+        {(!collapsible||open) && dayItems.map(it => {
+          const amt   = itemAmt(it);
+          const gross = Number(it.unit_price) * Number(it.quantity);
+          return (
+            <div key={it.id} className="card" style={{ marginBottom:6, marginLeft:collapsible?4:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    <span style={{ fontWeight:700, fontSize:14 }}>
+                      {it.product_name}{Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}
+                    </span>
+                    <span style={{ fontSize:11, padding:'2px 7px', borderRadius:10, background: it.item_type==='phone' ? 'rgba(0,212,255,0.1)' : 'rgba(176,96,255,0.1)', color: it.item_type==='phone' ? 'var(--cyan)' : 'var(--purple)', fontWeight:700 }}>
+                      {it.item_type==='phone' ? '📱' : '🏷'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize:12, color:'var(--muted)', marginTop:3, display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <span>{fmtTime(it.created_at)}</span>
+                    <span>· {payLabel(it)}</span>
+                    {it.customer_name && <span style={{color:'var(--amber)'}}>· {it.customer_name}</span>}
+                    {it.credit_customer && it.payment_method==='Credit' && !it.credit_cleared && <span style={{color:'var(--red)'}}>· Credit</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign:'right', flexShrink:0, marginLeft:8 }}>
+                  <div style={{ fontWeight:800, color:'var(--purple)', fontSize:15 }}>Rs {fmtAmt(amt)}</div>
+                  {Number(it.item_discount) > 0 && (
+                    <div style={{ fontSize:11, color:'var(--red)' }}>-Rs {fmtAmt(Number(it.item_discount))}</div>
+                  )}
+                </div>
+              </div>
+              {delConfirm === it.sale_id ? (
+                <div style={{ marginTop:8, display:'flex', gap:8, alignItems:'center' }}>
+                  <span style={{ fontSize:12, color:'var(--muted)', flex:1 }}>Delete this transaction?</span>
+                  <button onClick={() => deleteSale(it.sale_id)} disabled={deleting[it.sale_id]}
+                    style={{ padding:'5px 12px', borderRadius:8, border:'none', background:'var(--red)', color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                    {deleting[it.sale_id] ? '…' : 'Yes, delete'}
+                  </button>
+                  <button onClick={() => setDelConfirm(null)}
+                    style={{ padding:'5px 10px', borderRadius:8, border:'1.5px solid var(--border)', background:'transparent', color:'var(--muted)', fontSize:12, cursor:'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display:'flex', justifyContent:'flex-end', marginTop:4 }}>
+                  <button onClick={() => setDelConfirm(it.sale_id)}
+                    style={{ padding:'3px 10px', borderRadius:8, border:'1px solid rgba(255,70,70,0.3)', background:'transparent', color:'var(--red)', fontSize:11, cursor:'pointer', opacity:0.7 }}>
+                    Del
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function WeekHeader({ wk }) {
+    const w = weekGroups[wk];
+    return (
+      <div style={{ padding:'8px 12px', background:'rgba(176,96,255,0.07)', borderRadius:8, border:'1px solid rgba(176,96,255,0.22)', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:'var(--purple)' }}>Week of {fmtDay(wk)}</div>
+          <div style={{ fontSize:11, color:'var(--muted)' }}>{w.count} items · {w.days.length} days</div>
+        </div>
+        <div style={{ fontSize:14, fontWeight:800, color:'var(--purple)' }}>Rs {fmtAmt(w.total)}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <h2 style={{ fontWeight:800, fontSize:18 }}>Sales History</h2>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:6 }}>
+        {[['today','Today'],['week','Week'],['month','Month'],['all','All']].map(([v,l])=>(
+          <button key={v} onClick={()=>setFilter(v)}
+            className="btn btn-sm"
+            style={{ padding:'8px 4px', fontSize:12, background: filter===v ? 'var(--purple)' : 'transparent', color: filter===v ? '#fff' : 'var(--text)', border: `1.5px solid ${filter===v ? 'var(--purple)' : 'var(--border)'}` }}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+        <div className="stat-card"><div className="val" style={{color:'var(--purple)',fontSize:16}}>Rs {fmtAmt(totalRev)}</div><div className="lbl">Revenue</div></div>
+        <div className="stat-card"><div className="val" style={{color:'var(--amber)',fontSize:16}}>{items.length}</div><div className="lbl">Items Sold</div></div>
+        <div className="stat-card"><div className="val" style={{color:'var(--red)',fontSize:16}}>Rs {fmtAmt(totalDisc)}</div><div className="lbl">Discounts</div></div>
+      </div>
+
+      {loading && <div style={{ textAlign:'center', padding:20, color:'var(--muted)' }}>Loading…</div>}
+      {!loading && items.length===0 && <div style={{ textAlign:'center', padding:40, color:'var(--muted)' }}>No sales found</div>}
+
+      {!loading && filter==='today' && days.map(day => renderDay(day, false))}
+
+      {!loading && filter==='week' && weekKeys.map(wk => (
+        <div key={wk}>
+          {weekKeys.length > 1 && <WeekHeader wk={wk} />}
+          {weekGroups[wk].days.map(day => renderDay(day, true))}
+        </div>
+      ))}
+
+      {!loading && filter==='month' && weekKeys.map(wk => (
+        <div key={wk} style={{ marginBottom:8 }}>
+          <WeekHeader wk={wk} />
+          {weekGroups[wk].days.map(day => renderDay(day, true))}
+        </div>
+      ))}
+
+      {!loading && filter==='all' && monthKeys.map(month => {
+        const [yr, mo] = month.split('-');
+        const mg = monthGroups[month];
+        return (
+          <div key={month} style={{ marginBottom:8 }}>
+            <div style={{ padding:'10px 14px', background:'rgba(176,96,255,0.1)', borderRadius:10, border:'1px solid rgba(176,96,255,0.35)', marginBottom:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontWeight:800, fontSize:15, color:'var(--purple)' }}>{MONTHS[parseInt(mo)-1]} {yr}</div>
+                <div style={{ fontSize:12, color:'var(--muted)' }}>{mg.count} items · {mg.days.length} days</div>
+              </div>
+              <div style={{ fontWeight:800, fontSize:18, color:'var(--purple)' }}>Rs {fmtAmt(mg.total)}</div>
+            </div>
+            {mg.days.map(day => renderDay(day, true))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1317,7 +1825,17 @@ function AnalyticsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Analytics</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Analytics</h2>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['sales','Sales'],['repairs','Repairs'],['expenses','Expenses']].map(([t,lbl]) => (
+            <a key={t} href={`/api/export?type=${t}`} download
+              style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', textDecoration: 'none', display: 'inline-block' }}>
+              ⬇ {lbl}
+            </a>
+          ))}
+        </div>
+      </div>
 
       {/* View toggle */}
       <div style={{ display: 'flex', gap: 8 }}>
@@ -1840,49 +2358,32 @@ function CashTab() {
           {data.history?.length > 0 && (
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>HISTORY — LAST 30 DAYS</div>
-              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
-                      <th style={{ padding: '8px 10px', textAlign: 'left',  color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>DATE</th>
-                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>SALES IN</th>
-                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>EXP</th>
-                      <th style={{ padding: '8px 6px',  textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>SUPP</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--muted)', fontWeight: 700, fontSize: 10 }}>NET</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.history.map(row => {
-                      const salesIn  = Number(row.sales) + Number(row.repair_sales);
-                      const totalOut = Number(row.expenses) + Number(row.supplier_payments);
-                      const net      = salesIn - totalOut;
-                      const isSelected = row.date === date;
-                      return (
-                        <tr key={row.date} style={{ borderBottom: '1px solid var(--border)', background: isSelected ? 'rgba(6,182,212,0.06)' : 'transparent', cursor: 'pointer' }}
-                          onClick={() => setDate(row.date)}>
-                          <td style={{ padding: '8px 10px', color: isSelected ? 'var(--cyan)' : 'var(--text)', fontWeight: isSelected ? 700 : 400 }}>
-                            {fmtShort(row.date)}
-                          </td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--green)', fontWeight: 600 }}>
-                            {salesIn > 0 ? salesIn.toLocaleString() : '—'}
-                          </td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--red)' }}>
-                            {Number(row.expenses) > 0 ? Number(row.expenses).toLocaleString() : '—'}
-                          </td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--amber)' }}>
-                            {Number(row.supplier_payments) > 0 ? Number(row.supplier_payments).toLocaleString() : '—'}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: net >= 0 ? 'var(--cyan)' : 'var(--red)' }}>
-                            {net >= 0 ? '+' : ''}{net.toLocaleString()}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {data.history.map(row => {
+                  const salesIn  = Number(row.sales) + Number(row.repair_sales);
+                  const totalOut = Number(row.expenses) + Number(row.supplier_payments);
+                  const net      = salesIn - totalOut;
+                  const isSelected = row.date === date;
+                  return (
+                    <div key={row.date} onClick={() => setDate(row.date)} className="card"
+                      style={{ cursor: 'pointer', borderLeft: isSelected ? '3px solid var(--cyan)' : '3px solid transparent', padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: isSelected ? 'var(--cyan)' : 'var(--text)' }}>{fmtShort(row.date)}</span>
+                        <span style={{ fontWeight: 800, fontSize: 15, color: net >= 0 ? 'var(--cyan)' : 'var(--red)' }}>
+                          {net >= 0 ? '+' : ''}Rs {net.toLocaleString()}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                        {salesIn > 0 && <span style={{ color: 'var(--green)' }}>↑ Rs {salesIn.toLocaleString()}</span>}
+                        {Number(row.expenses) > 0 && <span style={{ color: 'var(--red)' }}>Exp Rs {Number(row.expenses).toLocaleString()}</span>}
+                        {Number(row.supplier_payments) > 0 && <span style={{ color: 'var(--amber)' }}>Supp Rs {Number(row.supplier_payments).toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <p style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 0' }}>
-                Tap any row to view that day's breakdown. Phone sales excluded. Supplier = settled shop tab debts.
+                Tap any card to view that day's breakdown. Supplier = settled shop tab debts.
               </p>
             </div>
           )}
@@ -2102,7 +2603,7 @@ function SectionLabel({ children }) {
 }
 
 function StatusBadge({ status }) {
-  const map = { 'Pending': 'badge-pending', 'In Progress': 'badge-progress', 'Done': 'badge-done', 'Delivered': 'badge-delivered' };
+  const map = { 'Pending': 'badge-pending', 'In Progress': 'badge-progress', 'Done': 'badge-done', 'Delivered': 'badge-delivered', 'Returned': 'badge-returned' };
   return <span className={`badge ${map[status] || 'badge-pending'}`}>{status}</span>;
 }
 
@@ -2156,4 +2657,497 @@ function printRepairReceipt(r) {
   </body></html>`;
   const w = window.open('', '_blank', 'width=400,height=620');
   if (w) { w.document.write(html); w.document.close(); }
+}
+
+// ─── NOTES TAB ───────────────────────────────────────────────────────────────
+function NotesTab({ isOwner }) {
+  const [items, setItems]         = useState([]);
+  const [filter, setFilter]       = useState('out');
+  const [loading, setLoading]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [resolving, setResolving] = useState({});
+  const [soldOpen, setSoldOpen]   = useState({});
+  const [soldAmt, setSoldAmt]     = useState({});
+  const [phones, setPhones]       = useState([]);
+  const [products, setProducts]   = useState([]);
+  const [form, setForm]           = useState({
+    person_name: '', person_phone: '',
+    item_type: 'phone', phone_id: '', product_id: '', custom_item: '', notes: ''
+  });
+
+  useEffect(() => {
+    fetch('/api/phones').then(r=>r.json()).then(d => setPhones((d||[]).filter(p=>p.status==='available')));
+    fetch('/api/products').then(r=>r.json()).then(setProducts);
+    load();
+  }, []);
+
+  useEffect(() => { load(); }, [filter]);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch(`/api/consignments?status=${filter}`);
+    if (r.ok) setItems(await r.json());
+    setLoading(false);
+  }
+
+  function derivedItemName() {
+    if (form.item_type === 'phone') {
+      const p = phones.find(p => String(p.id) === String(form.phone_id));
+      return p ? `${p.model} (${p.condition})` : '';
+    }
+    if (form.item_type === 'accessory') {
+      const p = products.find(p => String(p.id) === String(form.product_id));
+      return p ? p.name : '';
+    }
+    return form.custom_item;
+  }
+
+  function derivedPrice() {
+    if (form.item_type === 'phone') {
+      const p = phones.find(p => String(p.id) === String(form.phone_id));
+      return p ? Number(p.selling_price) : 0;
+    }
+    if (form.item_type === 'accessory') {
+      const p = products.find(p => String(p.id) === String(form.product_id));
+      return p ? Number(p.selling_price) : 0;
+    }
+    return 0;
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    const item_name = derivedItemName();
+    if (!form.person_name.trim() || !item_name.trim()) return;
+    setSaving(true);
+    const r = await fetch('/api/consignments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person_name: form.person_name.trim(), person_phone: form.person_phone.trim(), item_name, unit_price: derivedPrice(), notes: form.notes.trim(), phone_id: form.item_type === 'phone' ? Number(form.phone_id) || null : null, product_id: form.item_type === 'accessory' ? Number(form.product_id) || null : null, quantity: 1 }),
+    });
+    setSaving(false);
+    if (!r.ok) return;
+    load();
+    setForm({ person_name: '', person_phone: '', item_type: 'phone', phone_id: '', product_id: '', custom_item: '', notes: '' });
+    if (filter === 'out' || filter === 'all') load();
+  }
+
+  async function markSold(id) {
+    setResolving(p => ({ ...p, [id]: true }));
+    await fetch(`/api/consignments/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'sold', amount_received: Number(soldAmt[id]) || 0 }),
+    });
+    setResolving(p => ({ ...p, [id]: false }));
+    setSoldOpen(p => ({ ...p, [id]: false }));
+    load();
+  }
+
+  async function markReturned(id) {
+    setResolving(p => ({ ...p, [id]: true }));
+    await fetch(`/api/consignments/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'returned', amount_received: 0 }),
+    });
+    setResolving(p => ({ ...p, [id]: false }));
+    load();
+  }
+
+  async function del(id) {
+    await fetch(`/api/consignments/${id}`, { method: 'DELETE' });
+    load();
+  }
+
+  function fmtDate(iso) { return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); }
+
+  const pendingCount = items.filter(i => i.status === 'out').length;
+  const soldTotal    = items.filter(i => i.status==='sold').reduce((s,i) => s + Number(i.amount_received), 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2 style={{ fontWeight: 800, fontSize: 18 }}>Notes</h2>
+
+      {isOwner && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div className="stat-card"><div className="val" style={{color:'var(--amber)'}}>{pendingCount}</div><div className="lbl">Pending Out</div></div>
+          <div className="stat-card"><div className="val" style={{color:'var(--green)', fontSize:14}}>Rs {soldTotal.toLocaleString()}</div><div className="lbl">Received</div></div>
+        </div>
+      )}
+
+      <div className="card">
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Record Item Given Out</div>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input placeholder="Person name *" value={form.person_name} onChange={e => setForm(p => ({ ...p, person_name: e.target.value }))} />
+            <input placeholder="Phone number" value={form.person_phone} onChange={e => setForm(p => ({ ...p, person_phone: e.target.value }))} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            {[['phone','📱 Phone'],['accessory','🏷 Item'],['custom','✏ Custom']].map(([v,l]) => (
+              <button key={v} type="button" onClick={() => setForm(p => ({ ...p, item_type: v, phone_id: '', product_id: '', custom_item: '' }))}
+                className="btn btn-sm"
+                style={{ padding: '8px 4px', fontSize: 12, background: form.item_type===v ? 'var(--purple)' : 'transparent', color: form.item_type===v ? '#fff' : 'var(--text)', border: `1.5px solid ${form.item_type===v ? 'var(--purple)' : 'var(--border)'}` }}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {form.item_type === 'phone' && (
+            <select value={form.phone_id} onChange={e => setForm(p => ({ ...p, phone_id: e.target.value }))} style={{ background: 'var(--card)', color: 'var(--text)', border: '1.5px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14, width: '100%' }}>
+              <option value="">Select phone…</option>
+              {phones.map(p => <option key={p.id} value={p.id}>{p.model} — {p.condition} — Rs {Number(p.selling_price).toLocaleString()}</option>)}
+            </select>
+          )}
+
+          {form.item_type === 'accessory' && (
+            <select value={form.product_id} onChange={e => setForm(p => ({ ...p, product_id: e.target.value }))} style={{ background: 'var(--card)', color: 'var(--text)', border: '1.5px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14, width: '100%' }}>
+              <option value="">Select item…</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name} — Rs {p.selling_price}</option>)}
+            </select>
+          )}
+
+          {form.item_type === 'custom' && (
+            <input placeholder="Item name *" value={form.custom_item} onChange={e => setForm(p => ({ ...p, custom_item: e.target.value }))} />
+          )}
+
+          <input placeholder="Notes (optional)" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+          <button type="submit" className="btn btn-sm" style={{ fontWeight: 700, background: 'var(--purple)', color: '#fff', border: 'none' }} disabled={saving}>{saving ? '…' : 'Give Out'}</button>
+        </form>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+        {[['out','Pending'],['sold','Sold'],['returned','Returned'],['all','All']].map(([v,l]) => (
+          <button key={v} onClick={() => setFilter(v)} className="btn btn-sm"
+            style={{ padding: '8px 4px', fontSize: 12, background: filter===v ? 'var(--purple)' : 'transparent', color: filter===v ? '#fff' : 'var(--text)', border: `1.5px solid ${filter===v ? 'var(--purple)' : 'var(--border)'}` }}>
+            {l}{v==='out' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)' }}>Loading…</div>}
+      {!loading && items.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>Nothing here</div>}
+
+      {!loading && items.map(item => (
+        <div key={item.id} className="card" style={{ border: item.status==='out' ? '1.5px solid rgba(255,176,32,0.4)' : '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{item.person_name}</div>
+              {item.person_phone && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.person_phone}</div>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
+                background: item.status==='out' ? 'rgba(255,176,32,0.2)' : item.status==='sold' ? 'rgba(0,230,118,0.15)' : 'rgba(112,112,160,0.15)',
+                color: item.status==='out' ? 'var(--amber)' : item.status==='sold' ? 'var(--green)' : 'var(--muted)' }}>
+                {item.status==='out' ? 'PENDING' : item.status==='sold' ? 'SOLD' : 'RETURNED'}
+              </span>
+              {isOwner && <button onClick={() => del(item.id)} style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: '0 4px', lineHeight: 1 }}>✕</button>}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{item.item_name}</div>
+          {item.unit_price > 0 && <div style={{ fontSize: 13, color: 'var(--purple)' }}>Rs {Number(item.unit_price).toLocaleString()}</div>}
+          {item.notes && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{item.notes}</div>}
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            {fmtDate(item.given_at)}{item.given_by_name ? ` · ${item.given_by_name}` : ''}
+            {item.resolved_at && ` · Closed ${fmtDate(item.resolved_at)}`}
+          </div>
+          {item.status==='sold' && Number(item.amount_received) > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--green)', marginTop: 4, fontWeight: 700 }}>Received: Rs {Number(item.amount_received).toLocaleString()}</div>
+          )}
+
+          {item.status === 'out' && (
+            <div style={{ marginTop: 12 }}>
+              {soldOpen[item.id] ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="number" placeholder={`Amount (Rs ${Number(item.unit_price).toLocaleString()})`}
+                    value={soldAmt[item.id] || ''} onChange={e => setSoldAmt(p => ({ ...p, [item.id]: e.target.value }))}
+                    style={{ flex: 1 }} autoFocus />
+                  <button onClick={() => markSold(item.id)} className="btn btn-green btn-sm" style={{ whiteSpace: 'nowrap', padding: '10px 16px' }} disabled={resolving[item.id]}>
+                    {resolving[item.id] ? '…' : '✓ Confirm'}
+                  </button>
+                  <button onClick={() => setSoldOpen(p => ({ ...p, [item.id]: false }))} className="btn btn-ghost btn-sm" style={{ padding: '10px 12px' }}>✕</button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+                  <button onClick={() => setSoldOpen(p => ({ ...p, [item.id]: true }))}
+                    style={{ padding: '13px 0', borderRadius: 12, border: 'none', background: 'var(--green)', color: '#000', fontWeight: 800, fontSize: 15, cursor: 'pointer', letterSpacing: 0.3 }}
+                    disabled={resolving[item.id]}>
+                    ✓ SOLD
+                  </button>
+                  <button onClick={() => markReturned(item.id)}
+                    style={{ padding: '13px 0', borderRadius: 12, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                    disabled={resolving[item.id]}>
+                    ↩ Back
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Loyalty Owner Tab ────────────────────────────────────────────────────────
+function LoyaltyOwnerTab() {
+  const [enabled, setEnabled]       = useState(null);
+  const [customers, setCustomers]   = useState([]);
+  const [search, setSearch]         = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [expanded, setExpanded]     = useState(null);
+  const [adjusting, setAdjusting]   = useState({});
+  const [adjAmt, setAdjAmt]         = useState({});
+  const [saving, setSaving]         = useState(false);
+  const [tierFilter, setTierFilter] = useState('all');
+
+  useEffect(() => {
+    fetch('/api/settings?key=loyalty_enabled').then(r => r.json()).then(d => setEnabled(d.value === '1')).catch(() => setEnabled(false));
+    loadCustomers();
+  }, []);
+
+  async function loadCustomers() {
+    setLoading(true);
+    const r = await fetch('/api/customers');
+    if (r.ok) setCustomers(await r.json());
+    setLoading(false);
+  }
+
+  async function searchCustomers() {
+    setLoading(true);
+    const r = await fetch(`/api/customers?q=${encodeURIComponent(search)}`);
+    if (r.ok) setCustomers(await r.json());
+    setLoading(false);
+  }
+
+  async function toggleEnabled() {
+    const next = !enabled;
+    setSaving(true);
+    await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'loyalty_enabled', value: next ? '1' : '0' }) });
+    setEnabled(next);
+    setSaving(false);
+  }
+
+  async function applyAdjust(id) {
+    const adj = Number(adjAmt[id] || 0);
+    if (!adj) return;
+    await fetch(`/api/customers/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ points_adjust: adj }) });
+    setAdjusting(p => ({ ...p, [id]: false }));
+    setAdjAmt(p => ({ ...p, [id]: '' }));
+    loadCustomers();
+  }
+
+  async function setTierOverride(id, tier) {
+    await fetch(`/api/customers/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) });
+    loadCustomers();
+  }
+
+  function tierBg(t) {
+    return t === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : t === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)';
+  }
+
+  function isNearUpgrade(c) {
+    if (c.tier === 'Silver') return Number(c.phone_purchase_count || 0) >= 2 || Number(c.non_phone_spent || 0) >= 6000;
+    if (c.tier === 'Gold')   return Number(c.phone_purchase_count || 0) >= 5 || Number(c.non_phone_spent || 0) >= 16000;
+    return false;
+  }
+
+  const tierCounts = { Silver: 0, Gold: 0, Platinum: 0 };
+  customers.forEach(c => { if (tierCounts[c.tier] !== undefined) tierCounts[c.tier]++; });
+  const nearCount = customers.filter(isNearUpgrade).length;
+
+  const displayed = customers.filter(c => {
+    if (tierFilter === 'near') return isNearUpgrade(c);
+    if (tierFilter === 'all')  return true;
+    return c.tier === tierFilter;
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ fontWeight: 800, fontSize: 18, margin: 0 }}>Loyalty Program</h2>
+        <a href="/loyalty-cards" target="_blank" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none', fontWeight: 700 }}>🖨 Print Cards ↗</a>
+      </div>
+
+      {/* Enable / Disable toggle */}
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Loyalty System</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+            {enabled ? 'Active — loyalty section shows in staff checkout' : 'Disabled — hidden from staff checkout'}
+          </div>
+        </div>
+        <button onClick={toggleEnabled} disabled={saving || enabled === null}
+          style={{ padding: '10px 20px', borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+            background: enabled ? 'var(--green)' : 'rgba(255,255,255,0.08)', color: enabled ? '#000' : 'var(--muted)' }}>
+          {enabled ? '● ON' : '○ OFF'}
+        </button>
+      </div>
+
+      {/* Tier summary — clickable to filter */}
+      {customers.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+          {['Silver','Gold','Platinum'].map(t => (
+            <div key={t} className="card" style={{ textAlign: 'center', padding: '8px 6px', cursor: 'pointer',
+              border: tierFilter === t ? '1.5px solid rgba(0,212,255,0.35)' : '1px solid var(--border)' }}
+              onClick={() => setTierFilter(p => p === t ? 'all' : t)}>
+              <div style={{ fontSize: 10, fontWeight: 800, background: tierBg(t), WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: 3 }}>{t.toUpperCase()}</div>
+              <div style={{ fontSize: 20, fontWeight: 900 }}>{tierCounts[t]}</div>
+            </div>
+          ))}
+          <div className="card" style={{ textAlign: 'center', padding: '8px 6px', cursor: 'pointer',
+            border: tierFilter === 'near' ? '1.5px solid rgba(0,212,255,0.35)' : '1px solid var(--border)' }}
+            onClick={() => setTierFilter(p => p === 'near' ? 'all' : 'near')}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--amber)', marginBottom: 3 }}>⬆ NEAR</div>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>{nearCount}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filter pills */}
+      {customers.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { id: 'all',      label: 'All' },
+            { id: 'Silver',   label: '◆ Silver' },
+            { id: 'Gold',     label: '◆ Gold' },
+            { id: 'Platinum', label: '◆ Platinum' },
+            { id: 'near',     label: '⬆ Near Upgrade' },
+          ].map(f => (
+            <button key={f.id} onClick={() => setTierFilter(f.id)}
+              style={{ padding: '5px 12px', borderRadius: 20, fontFamily: 'inherit',
+                border: `1.5px solid ${tierFilter === f.id ? 'rgba(0,212,255,0.4)' : 'var(--border)'}`,
+                background: tierFilter === f.id ? 'rgba(0,212,255,0.1)' : 'transparent',
+                color: tierFilter === f.id ? 'var(--cyan)' : 'var(--muted)',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Search */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input placeholder="Search name, phone, card…" value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && searchCustomers()} style={{ flex: 1 }} />
+        <button onClick={searchCustomers} className="btn btn-sm" style={{ padding: '10px 14px' }}>Search</button>
+        <button onClick={() => { setSearch(''); setTierFilter('all'); loadCustomers(); }} className="btn btn-sm" style={{ padding: '10px 14px' }}>All</button>
+      </div>
+
+      {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)' }}>Loading…</div>}
+
+      {!loading && displayed.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}>
+          {tierFilter === 'near' ? 'No customers are close to upgrading yet.' :
+           tierFilter !== 'all' ? `No ${tierFilter} members yet.` :
+           'No customers yet. Staff can register customers at checkout.'}
+        </div>
+      )}
+
+      {!loading && displayed.map(c => {
+        const phonePc      = Number(c.phone_purchase_count || 0);
+        const nonPhoneS    = Number(c.non_phone_spent || 0);
+        const nextTier     = c.tier === 'Silver' ? 'Gold' : c.tier === 'Gold' ? 'Platinum' : null;
+        const phoneTarget  = c.tier === 'Silver' ? 3 : 6;
+        const spendTarget  = c.tier === 'Silver' ? 8000 : 20000;
+        const phoneDone    = phonePc >= phoneTarget;
+        const spendDone    = nonPhoneS >= spendTarget;
+
+        return (
+          <div key={c.id} className="card" style={{ border: expanded === c.id ? '1.5px solid rgba(0,212,255,0.25)' : '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setExpanded(p => p === c.id ? null : c.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 6, color: '#000', background: tierBg(c.tier) }}>{c.tier}</span>
+                  {isNearUpgrade(c) && nextTier && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber)' }}>⬆ Near {nextTier}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  {c.card_number} · {c.phone}
+                </div>
+                <div style={{ fontSize: 12, marginTop: 3, display: 'flex', gap: 12 }}>
+                  <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{c.points} pts</span>
+                  <span style={{ color: 'var(--muted)' }}>Rs {Number(c.total_spent).toLocaleString()} total</span>
+                  <span style={{ color: 'var(--muted)' }}>{c.visit_count} visits</span>
+                </div>
+                {/* Upgrade progress — only for Silver and Gold */}
+                {nextTier && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 14 }}>📱</span>
+                      <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+                        <div style={{ height: '100%', borderRadius: 2, width: `${Math.min(100, Math.round(phonePc / phoneTarget * 100))}%`,
+                          background: phoneDone ? 'var(--green)' : 'var(--cyan)', transition: 'width 0.3s' }} />
+                      </div>
+                      <span style={{ color: phoneDone ? 'var(--green)' : 'inherit', minWidth: 54 }}>
+                        {phonePc}/{phoneTarget} phones{phoneDone ? ' ✓' : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 14 }}>🛍</span>
+                      <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }}>
+                        <div style={{ height: '100%', borderRadius: 2, width: `${Math.min(100, Math.round(nonPhoneS / spendTarget * 100))}%`,
+                          background: spendDone ? 'var(--green)' : 'var(--purple)', transition: 'width 0.3s' }} />
+                      </div>
+                      <span style={{ color: spendDone ? 'var(--green)' : 'inherit', minWidth: 54 }}>
+                        Rs {nonPhoneS >= 1000 ? `${(nonPhoneS/1000).toFixed(1)}k` : nonPhoneS.toLocaleString()}/{spendTarget >= 1000 ? `${spendTarget/1000}k` : spendTarget}{spendDone ? ' ✓' : ''}
+                      </span>
+                    </div>
+                    {(phoneDone || spendDone) && !['Gold','Platinum'].includes(c.tier === 'Silver' ? 'x' : '') && (
+                      <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 700 }}>
+                        Eligible for {nextTier} — upgrade on next sale or override above
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <span style={{ color: 'var(--muted)', fontSize: 11, cursor: 'pointer', paddingLeft: 8 }} onClick={() => setExpanded(p => p === c.id ? null : c.id)}>{expanded === c.id ? '▲' : '▼'}</span>
+            </div>
+
+            {expanded === c.id && (
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Tier override */}
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 700 }}>OVERRIDE TIER</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {['Silver','Gold','Platinum'].map(t => (
+                      <button key={t} onClick={() => setTierOverride(c.id, t)}
+                        style={{ flex: 1, padding: '7px 4px', borderRadius: 8, border: `1.5px solid ${c.tier === t ? 'rgba(0,212,255,0.4)' : 'var(--border)'}`,
+                          background: c.tier === t ? 'rgba(0,212,255,0.08)' : 'transparent', color: c.tier === t ? 'var(--cyan)' : 'var(--muted)',
+                          fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Spending detail */}
+                <div style={{ fontSize: 11, color: 'var(--muted)', background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 10px' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>SPENDING BREAKDOWN</div>
+                  <div>📱 Phones: {phonePc} bought</div>
+                  <div>🛍 Accessories/Repairs: Rs {nonPhoneS.toLocaleString()}</div>
+                  <div>📦 Total: Rs {Number(c.total_spent).toLocaleString()}</div>
+                </div>
+
+                {/* Points adjustment */}
+                {adjusting[c.id] ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="number" placeholder="Points (+/-)" value={adjAmt[c.id] || ''}
+                      onChange={e => setAdjAmt(p => ({ ...p, [c.id]: e.target.value }))}
+                      style={{ flex: 1 }} autoFocus />
+                    <button onClick={() => applyAdjust(c.id)} className="btn btn-cyan btn-sm" style={{ padding: '10px 14px' }}>Apply</button>
+                    <button onClick={() => setAdjusting(p => ({ ...p, [c.id]: false }))} className="btn btn-ghost btn-sm" style={{ padding: '10px 12px' }}>✕</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setAdjusting(p => ({ ...p, [c.id]: true }))}
+                    style={{ padding: '8px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Adjust Points
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
