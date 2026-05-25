@@ -6,11 +6,13 @@ function calcPoints(tier, amount) {
   return Math.floor(amount / 100 * rate);
 }
 
-function newTier(phoneCount, nonPhoneSpent) {
+// Never downgrade — take the highest of calculated vs current tier
+function newTier(phoneCount, nonPhoneSpent, currentTier = 'Silver') {
   const TIERS = ['Silver', 'Gold', 'Platinum'];
   const byPhone = phoneCount >= 6 ? 'Platinum' : phoneCount >= 3 ? 'Gold' : 'Silver';
   const bySpend = nonPhoneSpent >= 20000 ? 'Platinum' : nonPhoneSpent >= 8000 ? 'Gold' : 'Silver';
-  return TIERS[Math.max(TIERS.indexOf(byPhone), TIERS.indexOf(bySpend))];
+  const calculated = TIERS[Math.max(TIERS.indexOf(byPhone), TIERS.indexOf(bySpend))];
+  return TIERS[Math.max(TIERS.indexOf(currentTier), TIERS.indexOf(calculated))];
 }
 
 export default async function handler(req, res) {
@@ -42,8 +44,11 @@ export default async function handler(req, res) {
       const newVisits     = Number(c.visit_count) + 1;
       const newPhoneCount = Number(c.phone_purchase_count || 0) + phonesInSale;
       const newNonPhone   = Number(c.non_phone_spent || 0) + Math.max(0, nonPhoneGross);
-      const newPoints     = Math.max(0, Number(c.points) + earned - Math.floor(Number(loyalty_discount) / 10));
-      const tier          = newTier(newPhoneCount, newNonPhone);
+
+      // 100 pts = Rs 10 → pts_deducted = loyalty_discount × 10
+      const redeemed  = Number(loyalty_discount) * 10;
+      const newPoints = Math.max(0, Number(c.points) + earned - redeemed);
+      const tier      = newTier(newPhoneCount, newNonPhone, c.tier);
 
       await tx.run(
         `UPDATE customers SET total_spent=?, visit_count=?, points=?, tier=?, phone_purchase_count=?, non_phone_spent=?, last_visit=datetime('now') WHERE id=?`,
@@ -57,8 +62,7 @@ export default async function handler(req, res) {
         );
       }
 
-      if (loyalty_discount > 0) {
-        const redeemed = Math.floor(Number(loyalty_discount) / 10);
+      if (redeemed > 0) {
         await tx.run(
           `INSERT INTO loyalty_events (customer_id, sale_id, type, points, note) VALUES (?, ?, 'redeemed', ?, ?)`,
           [Number(customer_id), sale_id ? Number(sale_id) : null, -redeemed, `Redeemed Rs ${loyalty_discount} off`]

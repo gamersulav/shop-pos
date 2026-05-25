@@ -3092,7 +3092,7 @@ function LoyaltyOwnerTab() {
                         Rs {nonPhoneS >= 1000 ? `${(nonPhoneS/1000).toFixed(1)}k` : nonPhoneS.toLocaleString()}/{spendTarget >= 1000 ? `${spendTarget/1000}k` : spendTarget}{spendDone ? ' ✓' : ''}
                       </span>
                     </div>
-                    {(phoneDone || spendDone) && !['Gold','Platinum'].includes(c.tier === 'Silver' ? 'x' : '') && (
+                    {(phoneDone || spendDone) && (
                       <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 700 }}>
                         Eligible for {nextTier} — upgrade on next sale or override above
                       </div>

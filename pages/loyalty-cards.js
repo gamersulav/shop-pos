@@ -92,7 +92,7 @@ function LoyaltyCard({ tier }) {
           </div>
           <div className="lcard-row lcard-row--card">
             <span className="lcard-fieldlabel">CARD</span>
-            <span className="lcard-cardnum" style={{ color: tier.accentText }}>AES —  ______</span>
+            <span className="lcard-cardnum" style={{ color: tier.accentText }}>AES-____</span>
           </div>
         </div>
 
