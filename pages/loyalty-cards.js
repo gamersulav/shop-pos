@@ -21,6 +21,8 @@ const TIERS = [
     glow2: 'rgba(148,163,184,0.09)',
     slash: 'rgba(203,213,225,0.05)',
     accentText: '#CBD5E1',
+    earnRate: '1 pt / Rs 100',
+    upgrade: 'Upgrade to GOLD: Buy 3 phones  or  Rs 8,000 on accessories',
     perks: ['1 pt per Rs 100 spent', '5% off all accessories', 'Free screen cleaning', 'Birthday 10% off'],
   },
   {
@@ -35,6 +37,8 @@ const TIERS = [
     glow2: 'rgba(217,119,6,0.10)',
     slash: 'rgba(251,191,36,0.06)',
     accentText: '#FCD34D',
+    earnRate: '1.5 pts / Rs 100',
+    upgrade: 'Upgrade to PLATINUM: Buy 6 phones  or  Rs 20,000 on accessories',
     perks: ['1.5 pts per Rs 100 spent', '8% off all accessories', 'Free screen guard with every phone', 'Priority repair queue', 'Birthday 15% off'],
   },
   {
@@ -49,6 +53,8 @@ const TIERS = [
     glow2: 'rgba(96,165,250,0.09)',
     slash: 'rgba(147,197,253,0.06)',
     accentText: '#93C5FD',
+    earnRate: '2 pts / Rs 100',
+    upgrade: null,
     perks: ['2 pts per Rs 100 spent', '10% off all accessories', 'Free screen guard + case with phone', 'Same-day repair (before noon)', 'Personal WhatsApp support', 'Birthday 20% off'],
   },
 ];
@@ -115,31 +121,42 @@ function LoyaltyCardBack({ tier }) {
     <div className={`lcard lcard--${tier.id}`} style={{ background: tier.bg }}>
       <CardDecorations tier={tier} />
       <div className="lcard-back-content">
+
+        {/* Brand + tier badge */}
         <div className="lcard-back-top">
-          <div className="lcard-back-brand">AESTHETECH</div>
-          <div className="lcard-back-subbrand">LOYALTY PROGRAM</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="lcard-back-brand">AESTHETECH</div>
+            <div className="lcard-back-tierbadge" style={{ background: tier.badgeBg, color: tier.badgeFg }}>
+              {tier.badge}
+            </div>
+          </div>
           <div className="lcard-back-divider" style={{ background: tier.strip }} />
         </div>
 
-        <div className="lcard-back-grid">
-          <div className="lcard-back-col">
-            <div className="lcard-back-label">EARN POINTS</div>
-            <div className="lcard-back-item">Silver · 1 pt / Rs 100</div>
-            <div className="lcard-back-item">Gold · 1.5 pts / Rs 100</div>
-            <div className="lcard-back-item">Platinum · 2 pts / Rs 100</div>
-            <div className="lcard-back-redeem" style={{ color: tier.accentText }}>100 pts = Rs 10 off</div>
-          </div>
-          <div className="lcard-back-col">
-            <div className="lcard-back-label">UPGRADE PATH</div>
-            <div className="lcard-back-item" style={{ fontWeight: 700, color: 'rgba(255,255,255,0.75)' }}>Gold Member</div>
-            <div className="lcard-back-item">Buy 3 phones, or</div>
-            <div className="lcard-back-item">Rs 8,000 accessories</div>
-            <div className="lcard-back-item" style={{ fontWeight: 700, color: 'rgba(255,255,255,0.75)', marginTop: '0.7mm' }}>Platinum</div>
-            <div className="lcard-back-item">Buy 6 phones, or</div>
-            <div className="lcard-back-item">Rs 20,000 accessories</div>
+        {/* Perks list */}
+        <div className="lcard-back-body">
+          <div className="lcard-back-label">MEMBER BENEFITS</div>
+          <div className="lcard-back-perks">
+            {tier.perks.map((p, i) => (
+              <div key={i} className="lcard-back-perk">◆ {p}</div>
+            ))}
           </div>
         </div>
 
+        {/* Earn + redeem */}
+        <div className="lcard-back-earn" style={{ color: tier.accentText }}>
+          {tier.earnRate} &nbsp;·&nbsp; 100 pts = Rs 10 off
+        </div>
+
+        {/* Upgrade path or top tier message */}
+        <div className="lcard-back-upgrade">
+          {tier.upgrade
+            ? <span style={{ color: 'rgba(255,255,255,0.45)' }}>↑ {tier.upgrade}</span>
+            : <span style={{ color: tier.accentText, fontWeight: 700 }}>◆ Our highest tier — thank you!</span>
+          }
+        </div>
+
+        {/* Footer */}
         <div className="lcard-back-footer">
           {SHOP.phone1} · {SHOP.phone2} · {SHOP.insta} · {SHOP.location}
         </div>
@@ -290,66 +307,68 @@ export default function LoyaltyCardsPage() {
         /* ── Back content ──────────────────────── */
         .lcard-back-content {
           position: relative; z-index: 1;
-          padding: 2.4mm 3mm;
+          padding: 2.2mm 2.8mm;
           height: 100%;
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
+          gap: 1mm;
         }
-        .lcard-back-top { text-align: center; }
+        .lcard-back-top {}
         .lcard-back-brand {
-          font-size: 3.6mm;
+          font-size: 3mm;
           font-weight: 900;
-          letter-spacing: 0.22em;
+          letter-spacing: 0.2em;
           color: #fff;
+          line-height: 1;
         }
-        .lcard-back-subbrand {
-          font-size: 1.32mm;
-          font-weight: 600;
-          letter-spacing: 0.18em;
-          color: rgba(255,255,255,0.3);
-          margin-top: 0.3mm;
+        .lcard-back-tierbadge {
+          font-size: 1.55mm;
+          font-weight: 800;
+          letter-spacing: 0.07em;
+          border-radius: 0.8mm;
+          padding: 0.6mm 2mm;
+          white-space: nowrap;
         }
         .lcard-back-divider {
-          height: 0.3mm;
+          height: 0.28mm;
           border-radius: 1mm;
           opacity: 0.45;
-          margin: 1.4mm 0 0;
+          margin-top: 1mm;
         }
-        .lcard-back-grid {
-          display: flex;
-          gap: 2mm;
-          flex: 1;
-          padding: 1mm 0;
-        }
-        .lcard-back-col { flex: 1; display: flex; flex-direction: column; gap: 0.45mm; }
+        .lcard-back-body { flex: 1; display: flex; flex-direction: column; gap: 0.5mm; }
         .lcard-back-label {
-          font-size: 1.22mm;
+          font-size: 1.1mm;
           font-weight: 800;
-          letter-spacing: 0.12em;
-          color: rgba(255,255,255,0.32);
-          margin-bottom: 0.8mm;
+          letter-spacing: 0.14em;
+          color: rgba(255,255,255,0.3);
           text-transform: uppercase;
+          margin-bottom: 0.5mm;
         }
-        .lcard-back-item {
-          font-size: 1.58mm;
+        .lcard-back-perks { display: flex; flex-direction: column; gap: 0.55mm; }
+        .lcard-back-perk {
+          font-size: 1.48mm;
           font-weight: 600;
-          color: rgba(255,255,255,0.62);
-          letter-spacing: 0.02em;
-          line-height: 1.5;
+          color: rgba(255,255,255,0.72);
+          letter-spacing: 0.01em;
+          line-height: 1.35;
         }
-        .lcard-back-redeem {
-          font-size: 1.68mm;
+        .lcard-back-earn {
+          font-size: 1.5mm;
           font-weight: 800;
           letter-spacing: 0.04em;
-          margin-top: 1.2mm;
+        }
+        .lcard-back-upgrade {
+          font-size: 1.28mm;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          line-height: 1.4;
         }
         .lcard-back-footer {
-          font-size: 1.28mm;
+          font-size: 1.2mm;
           font-weight: 500;
-          color: rgba(255,255,255,0.3);
+          color: rgba(255,255,255,0.28);
           text-align: center;
-          letter-spacing: 0.03em;
+          letter-spacing: 0.02em;
         }
 
         /* ── Screen preview wrapper ────────────── */
