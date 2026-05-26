@@ -526,11 +526,12 @@ function SaleTab({ products, phones }) {
       const c = await r.json();
       setLoyaltyCustomer(c);
       setLoyaltyNotFound(false);
-      if (!customerName.trim()) setCustomerName(c.name);
-      if (!customerPhone.trim()) setCustomerPhone(c.phone);
+      setCustomerName(c.name);
+      setCustomerPhone(c.phone);
     } else {
       setLoyaltyNotFound(true);
-      setRegForm({ name: '', phone: loyaltyQuery.trim().startsWith('AES') ? '' : loyaltyQuery.trim() });
+      const q = loyaltyQuery.trim();
+      setRegForm({ name: '', phone: q.toUpperCase().startsWith('AES') ? '' : q });
       setRegError('');
     }
   }
@@ -551,8 +552,8 @@ function SaleTab({ products, phones }) {
       setLoyaltyCustomer(c);
       setLoyaltyNotFound(false);
       setLoyaltyQuery('');
-      if (!customerName.trim()) setCustomerName(c.name);
-      if (!customerPhone.trim()) setCustomerPhone(c.phone);
+      setCustomerName(c.name);
+      setCustomerPhone(c.phone);
     } else {
       const d = await r.json();
       setRegError(d.error || 'Registration failed');
@@ -886,100 +887,101 @@ function SaleTab({ products, phones }) {
         </div>
       )}
 
-      {/* Customer — always required */}
-      <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: payError === 'name' ? 'var(--red)' : 'var(--muted)' }}>
-            {payError === 'name' ? '⚠ CUSTOMER NAME (required)' : 'CUSTOMER NAME'}
-          </label>
-          <input type="text" placeholder="e.g. Ram Bahadur" value={customerName}
-            onChange={e => { setCustomerName(e.target.value); if (payError === 'name') setPayError(''); }} />
+      {/* Customer — lookup always available */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: payError === 'name' || payError === 'phone' ? 'var(--red)' : 'var(--muted)', marginBottom: 8 }}>
+          {payError === 'name' ? '⚠ CUSTOMER NAME REQUIRED' : payError === 'phone' ? '⚠ CUSTOMER PHONE REQUIRED' : 'CUSTOMER'}
         </div>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 6, color: payError === 'phone' ? 'var(--red)' : 'var(--muted)' }}>
-            {payError === 'phone' ? '⚠ CUSTOMER PHONE (required)' : 'CUSTOMER PHONE'}
-          </label>
-          <input type="tel" placeholder="e.g. 98XXXXXXXX" value={customerPhone}
-            onChange={e => { setCustomerPhone(e.target.value); if (payError === 'phone') setPayError(''); }} />
-        </div>
-      </div>
 
-      {/* Loyalty card lookup */}
-      {loyaltyEnabled && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>LOYALTY CARD</div>
-          {loyaltyCustomer ? (
-            <div style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{loyaltyCustomer.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    {loyaltyCustomer.card_number} · {loyaltyCustomer.points} pts
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 9px', borderRadius: 6, color: '#000',
-                    background: loyaltyCustomer.tier === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : loyaltyCustomer.tier === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)' }}>
-                    {loyaltyCustomer.tier}
-                  </span>
-                  <button onClick={() => { setLoyaltyCustomer(null); setUsePoints(false); setLoyaltyQuery(''); setLoyaltyNotFound(false); }}
-                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>✕</button>
-                </div>
+        {loyaltyCustomer ? (
+          /* Found via card lookup — show card, hide manual inputs */
+          <div style={{ background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.2)', borderRadius: 10, padding: '10px 12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{loyaltyCustomer.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{loyaltyCustomer.phone}</div>
+                <div style={{ fontSize: 11, color: 'var(--cyan)', fontWeight: 700, marginTop: 2, letterSpacing: '0.06em' }}>{loyaltyCustomer.card_number}</div>
               </div>
-              {maxLoyaltyPts >= 100 && (
-                <button onClick={() => setUsePoints(p => !p)}
-                  style={{ marginTop: 8, width: '100%', padding: '9px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 12, fontFamily: 'inherit',
-                    border: `1.5px solid ${usePoints ? 'var(--green)' : 'var(--border)'}`,
-                    background: usePoints ? 'rgba(0,230,118,0.1)' : 'transparent',
-                    color: usePoints ? 'var(--green)' : 'var(--muted)' }}>
-                  {usePoints
-                    ? `✓ Using ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${loyaltyDiscount} off`
-                    : `Use ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${Math.floor(maxLoyaltyPts/100)*10} off`}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 9px', borderRadius: 6, color: '#000',
+                  background: loyaltyCustomer.tier === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : loyaltyCustomer.tier === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)' }}>
+                  {loyaltyCustomer.tier}
+                </span>
+                <button onClick={() => { setLoyaltyCustomer(null); setUsePoints(false); setLoyaltyQuery(''); setLoyaltyNotFound(false); setCustomerName(''); setCustomerPhone(''); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, padding: 0 }}>✕</button>
+              </div>
+            </div>
+            {loyaltyEnabled && (
+              <>
+                {maxLoyaltyPts >= 100 && (
+                  <button onClick={() => setUsePoints(p => !p)}
+                    style={{ marginTop: 8, width: '100%', padding: '9px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 12, fontFamily: 'inherit',
+                      border: `1.5px solid ${usePoints ? 'var(--green)' : 'var(--border)'}`,
+                      background: usePoints ? 'rgba(0,230,118,0.1)' : 'transparent',
+                      color: usePoints ? 'var(--green)' : 'var(--muted)' }}>
+                    {usePoints
+                      ? `✓ Using ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${loyaltyDiscount} off`
+                      : `Use ${Math.floor(maxLoyaltyPts/100)*100} pts = Rs ${Math.floor(maxLoyaltyPts/100)*10} off`}
+                  </button>
+                )}
+                {maxLoyaltyPts < 100 && loyaltyCustomer.points > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>{loyaltyCustomer.points} pts — need 100 pts minimum to redeem</div>
+                )}
+                {loyaltyCustomer.points === 0 && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>No points yet — will earn from this sale</div>
+                )}
+              </>
+            )}
+          </div>
+        ) : loyaltyNotFound ? (
+          /* Searched but not found — inline register */
+          <div style={{ background: 'rgba(255,99,71,0.06)', border: '1px solid rgba(255,99,71,0.25)', borderRadius: 10, padding: '12px', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, color: 'var(--red)', fontWeight: 700, marginBottom: 8 }}>No card found — Register New Customer</div>
+            <form onSubmit={registerAndAddLoyalty} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <input required placeholder="Customer name *" value={regForm.name}
+                onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} autoFocus />
+              <input required placeholder="Phone number *" value={regForm.phone}
+                onChange={e => setRegForm(p => ({ ...p, phone: e.target.value }))} />
+              {regError && <div style={{ fontSize: 12, color: 'var(--red)' }}>⚠ {regError}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={() => { setLoyaltyNotFound(false); setLoyaltyQuery(''); }}
+                  style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Cancel
                 </button>
-              )}
-              {maxLoyaltyPts < 100 && loyaltyCustomer.points > 0 && (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
-                  {loyaltyCustomer.points} pts — need 100 pts minimum to redeem
-                </div>
-              )}
-              {loyaltyCustomer.points === 0 && (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>No points yet — will earn from this sale</div>
-              )}
-            </div>
-          ) : loyaltyNotFound ? (
-            <div style={{ background: 'rgba(255,99,71,0.06)', border: '1px solid rgba(255,99,71,0.25)', borderRadius: 10, padding: '12px' }}>
-              <div style={{ fontSize: 13, color: 'var(--red)', fontWeight: 700, marginBottom: 8 }}>No card found — Register New Customer</div>
-              <form onSubmit={registerAndAddLoyalty} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <input required placeholder="Customer name *" value={regForm.name}
-                  onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} autoFocus />
-                <input required placeholder="Phone number *" value={regForm.phone}
-                  onChange={e => setRegForm(p => ({ ...p, phone: e.target.value }))} />
-                {regError && <div style={{ fontSize: 12, color: 'var(--red)' }}>⚠ {regError}</div>}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" onClick={() => { setLoyaltyNotFound(false); setLoyaltyQuery(''); }}
-                    style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={regSaving}
-                    style={{ flex: 2, padding: '9px', borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#000', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    {regSaving ? 'Registering…' : 'Register & Add'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input placeholder="Name, phone or AES-XXXX"
-                value={loyaltyQuery} onChange={e => setLoyaltyQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && lookupLoyaltyCustomer()}
-                style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
-              <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={loyaltySearching}>
-                {loyaltySearching ? '…' : 'Find'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+                <button type="submit" disabled={regSaving}
+                  style={{ flex: 2, padding: '9px', borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#000', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {regSaving ? 'Registering…' : 'Register & Add'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          /* Default: search field */
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input placeholder="Name, phone or AES-XXXX"
+              value={loyaltyQuery} onChange={e => setLoyaltyQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && lookupLoyaltyCustomer()}
+              style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
+            <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={loyaltySearching}>
+              {loyaltySearching ? '…' : 'Find'}
+            </button>
+          </div>
+        )}
+
+        {/* Manual name/phone — shown when no loyalty customer found */}
+        {!loyaltyCustomer && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <input type="text" placeholder="Customer name *"
+              value={customerName}
+              onChange={e => { setCustomerName(e.target.value); if (payError === 'name') setPayError(''); }}
+              style={payError === 'name' ? { borderColor: 'var(--red)' } : {}} />
+            <input type="tel" placeholder="Phone number *"
+              value={customerPhone}
+              onChange={e => { setCustomerPhone(e.target.value); if (payError === 'phone') setPayError(''); }}
+              style={payError === 'phone' ? { borderColor: 'var(--red)' } : {}} />
+          </div>
+        )}
+      </div>
 
       {/* Payment method */}
       <div style={{ marginBottom: 16 }}>
