@@ -23,7 +23,7 @@ const TIERS = [
     accentText: '#CBD5E1',
     earnRate: '1 pt / Rs 100',
     upgrade: 'Upgrade to GOLD: Buy 3 phones  or  Rs 8,000 on accessories',
-    perks: ['1 pt per Rs 100 spent', '5% off all accessories', 'Free screen cleaning', 'Birthday 10% off'],
+    perks: ['1 pt per Rs 100 spent', '15% off all accessories', '12% off repairs', 'Free screen cleaning'],
   },
   {
     id: 'gold',
@@ -39,7 +39,7 @@ const TIERS = [
     accentText: '#FCD34D',
     earnRate: '1.5 pts / Rs 100',
     upgrade: 'Upgrade to PLATINUM: Buy 6 phones  or  Rs 20,000 on accessories',
-    perks: ['1.5 pts per Rs 100 spent', '8% off all accessories', 'Free screen guard with every phone', 'Priority repair queue', 'Birthday 15% off'],
+    perks: ['1.5 pts per Rs 100 spent', '17.5% off all accessories', '14% off repairs', 'Free screen guard with every phone', 'Priority repair queue'],
   },
   {
     id: 'platinum',
@@ -55,7 +55,7 @@ const TIERS = [
     accentText: '#93C5FD',
     earnRate: '2 pts / Rs 100',
     upgrade: null,
-    perks: ['2 pts per Rs 100 spent', '10% off all accessories', 'Free screen guard + case with phone', 'Same-day repair (before noon)', 'Personal WhatsApp support', 'Birthday 20% off'],
+    perks: ['2 pts per Rs 100 spent', '22% off all accessories', '16% off repairs', 'Free screen guard + case with phone', 'Same-day repair (before noon)', 'Personal WhatsApp support'],
   },
 ];
 
