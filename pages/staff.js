@@ -442,6 +442,10 @@ function SaleTab({ products, phones }) {
   const [loyaltyCustomer, setLoyaltyCustomer] = useState(null);
   const [loyaltySearching, setLoyaltySearching] = useState(false);
   const [usePoints, setUsePoints]           = useState(false);
+  const [loyaltyNotFound, setLoyaltyNotFound] = useState(false);
+  const [regForm, setRegForm]               = useState({ name: '', phone: '' });
+  const [regSaving, setRegSaving]           = useState(false);
+  const [regError, setRegError]             = useState('');
 
   const accItems = products.map(p => ({ id: p.id, label: p.name, price: p.selling_price, sublabel: `Rs ${p.selling_price}` }));
   const phoneItems = phones.map(p => ({ id: p.id, label: p.model, price: Number(p.selling_price), sublabel: `${p.condition} · Rs ${Number(p.selling_price).toLocaleString()}` }));
@@ -494,15 +498,43 @@ function SaleTab({ products, phones }) {
   async function lookupLoyaltyCustomer() {
     if (!loyaltyQuery.trim()) return;
     setLoyaltySearching(true);
+    setLoyaltyNotFound(false);
     const r = await fetch(`/api/customers/lookup?q=${encodeURIComponent(loyaltyQuery.trim())}`);
     setLoyaltySearching(false);
     if (r.ok) {
       const c = await r.json();
       setLoyaltyCustomer(c);
+      setLoyaltyNotFound(false);
       if (!customerName.trim()) setCustomerName(c.name);
       if (!customerPhone.trim()) setCustomerPhone(c.phone);
     } else {
-      showToast('Customer not found. Register them first.', 'error');
+      setLoyaltyNotFound(true);
+      setRegForm({ name: '', phone: loyaltyQuery.trim().startsWith('AES') ? '' : loyaltyQuery.trim() });
+      setRegError('');
+    }
+  }
+
+  async function registerAndAddLoyalty(e) {
+    e.preventDefault();
+    if (!regForm.name.trim() || !regForm.phone.trim()) return;
+    setRegSaving(true);
+    setRegError('');
+    const r = await fetch('/api/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: regForm.name.trim(), phone: regForm.phone.trim() }),
+    });
+    setRegSaving(false);
+    if (r.ok) {
+      const c = await r.json();
+      setLoyaltyCustomer(c);
+      setLoyaltyNotFound(false);
+      setLoyaltyQuery('');
+      if (!customerName.trim()) setCustomerName(c.name);
+      if (!customerPhone.trim()) setCustomerPhone(c.phone);
+    } else {
+      const d = await r.json();
+      setRegError(d.error || 'Registration failed');
     }
   }
 
@@ -661,6 +693,9 @@ function SaleTab({ products, phones }) {
     setLoyaltyQuery('');
     setLoyaltyCustomer(null);
     setUsePoints(false);
+    setLoyaltyNotFound(false);
+    setRegForm({ name: '', phone: '' });
+    setRegError('');
   }
 
   if (done) return (
@@ -859,7 +894,7 @@ function SaleTab({ products, phones }) {
                     background: loyaltyCustomer.tier === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : loyaltyCustomer.tier === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)' }}>
                     {loyaltyCustomer.tier}
                   </span>
-                  <button onClick={() => { setLoyaltyCustomer(null); setUsePoints(false); setLoyaltyQuery(''); }}
+                  <button onClick={() => { setLoyaltyCustomer(null); setUsePoints(false); setLoyaltyQuery(''); setLoyaltyNotFound(false); }}
                     style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: 0 }}>✕</button>
                 </div>
               </div>
@@ -882,6 +917,27 @@ function SaleTab({ products, phones }) {
               {loyaltyCustomer.points === 0 && (
                 <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>No points yet — will earn from this sale</div>
               )}
+            </div>
+          ) : loyaltyNotFound ? (
+            <div style={{ background: 'rgba(255,99,71,0.06)', border: '1px solid rgba(255,99,71,0.25)', borderRadius: 10, padding: '12px' }}>
+              <div style={{ fontSize: 13, color: 'var(--red)', fontWeight: 700, marginBottom: 8 }}>No card found — Register New Customer</div>
+              <form onSubmit={registerAndAddLoyalty} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input required placeholder="Customer name *" value={regForm.name}
+                  onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} autoFocus />
+                <input required placeholder="Phone number *" value={regForm.phone}
+                  onChange={e => setRegForm(p => ({ ...p, phone: e.target.value }))} />
+                {regError && <div style={{ fontSize: 12, color: 'var(--red)' }}>⚠ {regError}</div>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => { setLoyaltyNotFound(false); setLoyaltyQuery(''); }}
+                    style={{ flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={regSaving}
+                    style={{ flex: 2, padding: '9px', borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#000', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {regSaving ? 'Registering…' : 'Register & Add'}
+                  </button>
+                </div>
+              </form>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>

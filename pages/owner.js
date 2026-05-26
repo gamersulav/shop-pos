@@ -2898,6 +2898,12 @@ function LoyaltyOwnerTab() {
   const [adjAmt, setAdjAmt]         = useState({});
   const [saving, setSaving]         = useState(false);
   const [tierFilter, setTierFilter] = useState('all');
+  const [issuing, setIssuing]       = useState(false);
+  const [issueForm, setIssueForm]   = useState({ name: '', phone: '', notes: '' });
+  const [issueSaving, setIssueSaving] = useState(false);
+  const [issueError, setIssueError] = useState('');
+  const [issuedCard, setIssuedCard] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings?key=loyalty_enabled').then(r => r.json()).then(d => setEnabled(d.value === '1')).catch(() => setEnabled(false));
@@ -2940,6 +2946,28 @@ function LoyaltyOwnerTab() {
     loadCustomers();
   }
 
+  async function issueCard(e) {
+    e.preventDefault();
+    setIssueSaving(true);
+    setIssueError('');
+    const r = await fetch('/api/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(issueForm),
+    });
+    setIssueSaving(false);
+    if (r.ok) {
+      const c = await r.json();
+      setIssuedCard(c);
+      setIssueForm({ name: '', phone: '', notes: '' });
+      setIssuing(false);
+      loadCustomers();
+    } else {
+      const d = await r.json();
+      setIssueError(d.error || 'Failed to issue card');
+    }
+  }
+
   function tierBg(t) {
     return t === 'Platinum' ? 'linear-gradient(135deg,#334155,#93C5FD)' : t === 'Gold' ? 'linear-gradient(135deg,#92400E,#FCD34D)' : 'linear-gradient(135deg,#475569,#CBD5E1)';
   }
@@ -2960,11 +2988,95 @@ function LoyaltyOwnerTab() {
     return c.tier === tierFilter;
   });
 
+  const fmtIssuedAt = (ts) => {
+    if (!ts) return '—';
+    const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+    return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const historyList = [...customers].sort((a, b) => new Date(b.joined_at) - new Date(a.joined_at));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ fontWeight: 800, fontSize: 18, margin: 0 }}>Loyalty Program</h2>
         <a href="/loyalty-cards" target="_blank" style={{ fontSize: 12, color: 'var(--cyan)', textDecoration: 'none', fontWeight: 700 }}>🖨 Print Cards ↗</a>
+      </div>
+
+      {/* Issue New Card */}
+      {!issuing ? (
+        <button onClick={() => { setIssuing(true); setIssuedCard(null); setIssueError(''); }}
+          style={{ width: '100%', padding: '13px', borderRadius: 10, border: '1.5px dashed rgba(0,212,255,0.35)', background: 'rgba(0,212,255,0.06)', color: 'var(--cyan)', fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+          + Issue New Loyalty Card
+        </button>
+      ) : (
+        <form onSubmit={issueCard} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Issue New Card</div>
+            <button type="button" onClick={() => { setIssuing(false); setIssueError(''); }}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, padding: 0 }}>✕</button>
+          </div>
+          <input required placeholder="Customer name *" value={issueForm.name}
+            onChange={e => setIssueForm(p => ({ ...p, name: e.target.value }))} />
+          <input required placeholder="Phone number *" value={issueForm.phone}
+            onChange={e => setIssueForm(p => ({ ...p, phone: e.target.value }))} />
+          <input placeholder="Notes (optional)" value={issueForm.notes}
+            onChange={e => setIssueForm(p => ({ ...p, notes: e.target.value }))} />
+          {issueError && <div style={{ color: 'var(--red)', fontSize: 13 }}>⚠ {issueError}</div>}
+          <button type="submit" disabled={issueSaving}
+            style={{ padding: '12px', borderRadius: 10, border: 'none', background: 'var(--cyan)', color: '#000', fontWeight: 800, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {issueSaving ? 'Issuing…' : 'Issue Card'}
+          </button>
+        </form>
+      )}
+
+      {/* Newly issued card confirmation */}
+      {issuedCard && (
+        <div className="card" style={{ border: '1.5px solid rgba(0,230,118,0.35)', background: 'rgba(0,230,118,0.06)' }}>
+          <div style={{ fontWeight: 700, color: 'var(--green)', marginBottom: 6 }}>✓ Card Issued Successfully</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--cyan)', letterSpacing: '0.08em', marginBottom: 4 }}>{issuedCard.card_number}</div>
+          <div style={{ fontSize: 14 }}>{issuedCard.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{issuedCard.phone} · Silver tier · 0 pts</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Hand the printed card to the customer and write the card number on it.</div>
+        </div>
+      )}
+
+      {/* Issuance History */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <button onClick={() => setShowHistory(p => !p)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '13px 14px', background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>📋 Issuance History</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', background: 'rgba(255,255,255,0.07)', borderRadius: 20, padding: '2px 10px', fontWeight: 700 }}>{historyList.length} cards</span>
+            <span style={{ color: 'var(--muted)', fontSize: 13 }}>{showHistory ? '▲' : '▼'}</span>
+          </span>
+        </button>
+        {showHistory && (
+          <div style={{ borderTop: '1px solid var(--border)' }}>
+            {historyList.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No cards issued yet.</div>
+            ) : (
+              historyList.map((c, i) => (
+                <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '11px 14px', borderBottom: i < historyList.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'start' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</span>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--cyan)', letterSpacing: '0.06em' }}>{c.card_number}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{c.phone}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                      Issued by <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{c.issued_by || '—'}</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtIssuedAt(c.joined_at)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: c.tier === 'Platinum' ? '#93C5FD' : c.tier === 'Gold' ? '#FCD34D' : 'var(--muted)', marginTop: 2 }}>{c.tier}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* Enable / Disable toggle */}

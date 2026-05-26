@@ -27,9 +27,10 @@ export default async function handler(req, res) {
     const existing = await db.queryOne('SELECT id FROM customers WHERE phone=?', [phone.trim()]);
     if (existing) return res.status(409).json({ error: 'Phone already registered' });
 
+    const issued_by = session.username || session.role || 'Unknown';
     const { lastId } = await db.run(
-      `INSERT INTO customers (card_number, name, phone, notes) VALUES ('TEMP', ?, ?, ?)`,
-      [name.trim(), phone.trim(), notes.trim()]
+      `INSERT INTO customers (card_number, name, phone, notes, issued_by) VALUES ('TEMP', ?, ?, ?, ?)`,
+      [name.trim(), phone.trim(), notes.trim(), issued_by]
     );
     const card_number = `AES-${String(lastId).padStart(4, '0')}`;
     await db.run('UPDATE customers SET card_number=? WHERE id=?', [card_number, lastId]);
