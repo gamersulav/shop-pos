@@ -3138,11 +3138,12 @@ function LoyaltyOwnerTab() {
 
       {/* Search */}
       <div style={{ display: 'flex', gap: 8 }}>
-        <input placeholder="Search name, phone, card…" value={search}
+        <input placeholder="Name, phone or AES-XXXX" value={search}
           onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && searchCustomers()} style={{ flex: 1 }} />
-        <button onClick={searchCustomers} className="btn btn-sm" style={{ padding: '10px 14px' }}>Search</button>
-        <button onClick={() => { setSearch(''); setTierFilter('all'); loadCustomers(); }} className="btn btn-sm" style={{ padding: '10px 14px' }}>All</button>
+          onKeyDown={e => e.key === 'Enter' && searchCustomers()}
+          style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
+        <button onClick={searchCustomers} className="btn btn-sm" style={{ padding: '13px 18px', fontSize: 15, fontWeight: 800 }}>Search</button>
+        <button onClick={() => { setSearch(''); setTierFilter('all'); loadCustomers(); }} className="btn btn-sm" style={{ padding: '13px 14px', fontSize: 14 }}>All</button>
       </div>
 
       {loading && <div style={{ textAlign: 'center', padding: 20, color: 'var(--muted)' }}>Loading…</div>}

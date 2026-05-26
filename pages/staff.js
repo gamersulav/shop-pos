@@ -421,6 +421,14 @@ function PayButton({ method, selected, onClick }) {
   );
 }
 
+// ─── LOYALTY DISCOUNT RATES ──────────────────────────────────────────────────
+const TIER_ACC_DISC  = { Silver: 0.15, Gold: 0.175, Platinum: 0.22 };
+const TIER_REP_DISC  = { Silver: 0.12, Gold: 0.14,  Platinum: 0.16 };
+function loyaltyAccDisc(tier, price, qty = 1) {
+  const pct = TIER_ACC_DISC[tier] || 0;
+  return pct ? Math.round(price * qty * pct) : 0;
+}
+
 // ─── SALE TAB ────────────────────────────────────────────────────────────────
 const emptyItem = () => ({ type: 'accessory', productId: '', phoneId: '', qty: 1, price: 0, discount: '', name: '' });
 
@@ -480,6 +488,10 @@ function SaleTab({ products, phones }) {
         const p = products.find(p => String(p.id) === String(val));
         next[idx].price = p ? p.selling_price : 0;
         next[idx].name  = p ? p.name : '';
+        // Auto-apply loyalty discount when product is selected
+        if (p && loyaltyCustomer && next[idx].type === 'accessory') {
+          next[idx].discount = String(loyaltyAccDisc(loyaltyCustomer.tier, p.selling_price, next[idx].qty));
+        }
       }
       if (field === 'phoneId') {
         const p = phones.find(p => String(p.id) === String(val));
@@ -489,6 +501,15 @@ function SaleTab({ products, phones }) {
       return next;
     });
   }
+
+  // Auto-apply loyalty discounts to all accessory items when customer is set
+  useEffect(() => {
+    if (!loyaltyCustomer) return;
+    setItems(prev => prev.map(item => {
+      if (item.type !== 'accessory' || !item.productId || !item.price) return item;
+      return { ...item, discount: String(loyaltyAccDisc(loyaltyCustomer.tier, item.price, item.qty)) };
+    }));
+  }, [loyaltyCustomer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch('/api/settings?key=loyalty_enabled')
@@ -804,12 +825,19 @@ function SaleTab({ products, phones }) {
             </div>
 
             {hasItem && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <label style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount (Rs)</label>
-                <input type="number" min="0" placeholder="0"
-                  value={item.discount}
-                  onChange={e => setItem(idx, 'discount', e.target.value)}
-                  style={{ flex: 1, textAlign: 'right', fontSize: 15 }} />
+              <div style={{ marginTop: 8 }}>
+                {loyaltyCustomer && item.type === 'accessory' && item.price > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--amber)', fontWeight: 700, marginBottom: 4 }}>
+                    🎁 {loyaltyCustomer.tier} loyalty {Math.round((TIER_ACC_DISC[loyaltyCustomer.tier] || 0) * 100)}% applied
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Discount (Rs)</label>
+                  <input type="number" min="0" placeholder="0"
+                    value={item.discount}
+                    onChange={e => setItem(idx, 'discount', e.target.value)}
+                    style={{ flex: 1, textAlign: 'right', fontSize: 15 }} />
+                </div>
               </div>
             )}
 
@@ -941,11 +969,11 @@ function SaleTab({ products, phones }) {
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
-              <input placeholder="Phone number or Card No. (AES-XXXX)"
+              <input placeholder="Name, phone or AES-XXXX"
                 value={loyaltyQuery} onChange={e => setLoyaltyQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && lookupLoyaltyCustomer()}
-                style={{ flex: 1 }} />
-              <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '10px 14px', flexShrink: 0 }} disabled={loyaltySearching}>
+                style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
+              <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={loyaltySearching}>
                 {loyaltySearching ? '…' : 'Find'}
               </button>
             </div>
@@ -1437,6 +1465,35 @@ function RepairTab() {
   const [saving, setSaving] = useState(false);
   const [done, setDone]   = useState(false);
 
+  const [repLoyaltyQuery, setRepLoyaltyQuery]     = useState('');
+  const [repLoyaltyCustomer, setRepLoyaltyCustomer] = useState(null);
+  const [repLoyaltySearching, setRepLoyaltySearching] = useState(false);
+
+  async function lookupRepairLoyalty() {
+    if (!repLoyaltyQuery.trim()) return;
+    setRepLoyaltySearching(true);
+    const r = await fetch(`/api/customers/lookup?q=${encodeURIComponent(repLoyaltyQuery.trim())}`);
+    setRepLoyaltySearching(false);
+    if (r.ok) {
+      const c = await r.json();
+      setRepLoyaltyCustomer(c);
+      setForm(f => ({
+        ...f,
+        customer:     f.customer.trim()      ? f.customer      : c.name,
+        customerPhone: f.customerPhone.trim() ? f.customerPhone : c.phone,
+      }));
+    } else {
+      showToast('No loyalty card found for that name / phone / card number', 'error');
+    }
+  }
+
+  function repLoyaltyDisc() {
+    if (!repLoyaltyCustomer) return 0;
+    const pct = TIER_REP_DISC[repLoyaltyCustomer.tier] || 0;
+    const price = parseFloat(form.customerPrice) || 0;
+    return pct && price ? Math.round(price * pct) : 0;
+  }
+
   useEffect(() => { loadRepairs(); }, []);
 
   async function loadRepairs() {
@@ -1510,9 +1567,15 @@ function RepairTab() {
     setSaving(false);
     if (res.ok) {
       const { id } = await res.json().catch(() => ({}));
-      const newRepair = { id, customer_name: form.customer, customer_phone: form.customerPhone, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status, payment_method: form.payment, repair_discount: 0, created_at: new Date().toISOString() };
+      const loyaltyDisc = repLoyaltyDisc();
+      if (id && loyaltyDisc > 0) {
+        fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repair_discount: loyaltyDisc }) });
+      }
+      const newRepair = { id, customer_name: form.customer, customer_phone: form.customerPhone, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status, payment_method: form.payment, repair_discount: loyaltyDisc, created_at: new Date().toISOString() };
       setRepairs(prev => [newRepair, ...prev]);
-      setDiscountInputs(prev => ({ ...prev, [id]: 0 }));
+      setDiscountInputs(prev => ({ ...prev, [id]: loyaltyDisc }));
+      setRepLoyaltyCustomer(null);
+      setRepLoyaltyQuery('');
       showToast('Repair logged', 'success');
       setDone(true);
       setTimeout(() => { setForm(init); setDone(false); setView('list'); }, 1200);
@@ -1672,6 +1735,30 @@ function RepairTab() {
 
       {view === 'add' && (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Loyalty card lookup */}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>LOYALTY CARD (optional)</label>
+            {repLoyaltyCustomer ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,176,32,0.08)', border: '1px solid rgba(255,176,32,0.25)', borderRadius: 10, padding: '10px 12px' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{repLoyaltyCustomer.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{repLoyaltyCustomer.card_number} · {repLoyaltyCustomer.tier}</div>
+                </div>
+                <button onClick={() => setRepLoyaltyCustomer(null)}
+                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 18, padding: 0 }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input placeholder="Name, phone or AES-XXXX"
+                  value={repLoyaltyQuery} onChange={e => setRepLoyaltyQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && lookupRepairLoyalty()}
+                  style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
+                <button onClick={lookupRepairLoyalty} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={repLoyaltySearching}>
+                  {repLoyaltySearching ? '…' : 'Find'}
+                </button>
+              </div>
+            )}
+          </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>DEVICE / PHONE MODEL *</label>
             <input type="text" placeholder="e.g. iPhone 14 Pro, Samsung S23" value={form.phone} onChange={e => set('phone', e.target.value)} />
@@ -1692,7 +1779,12 @@ function RepairTab() {
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>CUSTOMER PRICE (Rs)</label>
             <input type="number" placeholder="0" value={form.customerPrice} onChange={e => set('customerPrice', e.target.value)} />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Once saved, amount is locked. Use Discount on the card to adjust later.</div>
+            {repLoyaltyCustomer && repLoyaltyDisc() > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--amber)', fontWeight: 700, marginTop: 6 }}>
+                🎁 {repLoyaltyCustomer.tier} loyalty {Math.round((TIER_REP_DISC[repLoyaltyCustomer.tier] || 0) * 100)}% → Rs {repLoyaltyDisc()} discount will be auto-applied
+              </div>
+            )}
+            {!repLoyaltyCustomer && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Once saved, amount is locked. Use Discount on the card to adjust later.</div>}
           </div>
           <div>
             <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 700 }}>STATUS</label>
