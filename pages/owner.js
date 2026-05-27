@@ -204,11 +204,13 @@ function DashboardTab() {
   const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/api/dashboard').then(r => r.json()).then(setData);
-    const iv = setInterval(() => fetch('/api/dashboard').then(r => r.json()).then(setData), 120000);
+    function loadDash() { fetch('/api/dashboard').then(r => r.json()).then(setData); }
+    loadDash();
+    const iv = setInterval(loadDash, 120000);
+    window.addEventListener('pos:products-updated', loadDash);
     loadToday();
     loadInsights();
-    return () => clearInterval(iv);
+    return () => { clearInterval(iv); window.removeEventListener('pos:products-updated', loadDash); };
   }, []);
 
   function loadInsights() {
@@ -668,6 +670,7 @@ function ProductsTab({ products, reload }) {
     setSaving(false);
     setEditing(null);
     reload();
+    window.dispatchEvent(new CustomEvent('pos:products-updated'));
   }
 
   async function deleteProduct(id) {
