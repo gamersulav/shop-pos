@@ -852,7 +852,10 @@ function PhoneCard({ p, editing, setEditing, saving, savePrice, setConfirmDelete
     <div className="card">
       {editing?.id === p.id ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--cyan)' }}>Pricing: {p.model}</div>
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>PHONE NAME / MODEL</label>
+            <input type="text" value={editing.model} onChange={e => setEditing(ed => ({ ...ed, model: e.target.value }))} placeholder="e.g. iPhone 14 Pro Max 256GB" />
+          </div>
           {[['Cost Price (Rs)', 'cost_price', 'number'], ['Selling Price (Rs)', 'selling_price', 'number']].map(([lbl, key, type]) => (
             <div key={key}>
               <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{lbl}</label>
@@ -915,7 +918,7 @@ function PhoneCard({ p, editing, setEditing, saving, savePrice, setConfirmDelete
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '5px 10px', fontSize: 12 }}
-                onClick={() => setEditing({ id: p.id, cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
+                onClick={() => setEditing({ id: p.id, model: p.model || '', cost_price: p.cost_price ?? 0, selling_price: p.selling_price ?? 0, condition: p.condition, notes: p.notes || '', sale_discount: Number(p.sale_discount || 0) })}>
                 {Number(p.selling_price) ? 'Edit' : '+ Price'}
               </button>
               <button className="btn btn-sm" style={{ width: 'auto', padding: '5px 8px', background: 'rgba(239,68,68,0.15)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)', fontSize: 12 }}
@@ -971,6 +974,7 @@ function OwnerPhonesTab() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        model:         editing.model?.trim(),
         cost_price:    parseFloat(editing.cost_price)    || 0,
         selling_price: parseFloat(editing.selling_price) || 0,
         condition:     editing.condition,
@@ -981,6 +985,7 @@ function OwnerPhonesTab() {
     setSaving(false);
     setPhones(prev => prev.map(p => p.id === id ? {
       ...p,
+      model:         editing.model?.trim() || p.model,
       cost_price:    parseFloat(editing.cost_price)    || 0,
       selling_price: parseFloat(editing.selling_price) || 0,
       condition:     editing.condition,

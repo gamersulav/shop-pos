@@ -11,8 +11,9 @@ export default async function handler(req, res) {
   // ── Owner: update prices ──────────────────────────────────────────────────
   if (req.method === 'PUT') {
     if (session.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
-    const { cost_price, selling_price, condition, notes, discount } = req.body;
+    const { cost_price, selling_price, condition, notes, discount, model } = req.body;
     const fields = [], vals = [];
+    if (model         !== undefined) { fields.push('model=?');         vals.push(String(model).trim()); }
     if (cost_price    !== undefined) { fields.push('cost_price=?');    vals.push(Number(cost_price)); }
     if (selling_price !== undefined) { fields.push('selling_price=?'); vals.push(Number(selling_price)); }
     if (condition     !== undefined) { fields.push('condition=?');     vals.push(condition); }
@@ -23,8 +24,9 @@ export default async function handler(req, res) {
     if (fields.length) { vals.push(id); await db.run(`UPDATE used_phones SET ${fields.join(',')} WHERE id=?`, vals); }
 
     // Sync sale_items and sales if this phone has been sold
-    if (phone?.sold_in_sale && (selling_price !== undefined || cost_price !== undefined || discount !== undefined)) {
+    if (phone?.sold_in_sale && (selling_price !== undefined || cost_price !== undefined || discount !== undefined || model !== undefined)) {
       const siFields = [], siVals = [];
+      if (model         !== undefined) { siFields.push('product_name=?');  siVals.push(String(model).trim()); }
       if (selling_price !== undefined) { siFields.push('unit_price=?');    siVals.push(Number(selling_price)); }
       if (cost_price    !== undefined) { siFields.push('cost_price=?');    siVals.push(Number(cost_price)); }
       if (discount      !== undefined) { siFields.push('item_discount=?'); siVals.push(Math.max(0, Number(discount))); }
