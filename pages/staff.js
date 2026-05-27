@@ -961,8 +961,8 @@ function SaleTab({ products, phones }) {
             <input placeholder="Name, phone or AES-XXXX"
               value={loyaltyQuery} onChange={e => setLoyaltyQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && lookupLoyaltyCustomer()}
-              style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
-            <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={loyaltySearching}>
+              style={{ flex: 1, minWidth: 0, fontSize: 16, padding: '14px 14px', fontWeight: 500, color: '#e8e8f0', background: '#12122a', WebkitTextFillColor: '#e8e8f0' }} />
+            <button onClick={lookupLoyaltyCustomer} className="btn btn-sm" style={{ padding: '14px 20px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={loyaltySearching}>
               {loyaltySearching ? '…' : 'Find'}
             </button>
           </div>
@@ -1754,8 +1754,8 @@ function RepairTab() {
                 <input placeholder="Name, phone or AES-XXXX"
                   value={repLoyaltyQuery} onChange={e => setRepLoyaltyQuery(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && lookupRepairLoyalty()}
-                  style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
-                <button onClick={lookupRepairLoyalty} className="btn btn-sm" style={{ padding: '13px 18px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={repLoyaltySearching}>
+                  style={{ flex: 1, minWidth: 0, fontSize: 16, padding: '14px 14px', fontWeight: 500, color: '#e8e8f0', background: '#12122a', WebkitTextFillColor: '#e8e8f0' }} />
+                <button onClick={lookupRepairLoyalty} className="btn btn-sm" style={{ padding: '14px 20px', flexShrink: 0, fontSize: 15, fontWeight: 800 }} disabled={repLoyaltySearching}>
                   {repLoyaltySearching ? '…' : 'Find'}
                 </button>
               </div>

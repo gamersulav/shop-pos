@@ -3149,7 +3149,7 @@ function LoyaltyOwnerTab() {
         <input placeholder="Name, phone or AES-XXXX" value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && searchCustomers()}
-          style={{ flex: 1, fontSize: 16, padding: '13px 14px', fontWeight: 600 }} />
+          style={{ flex: 1, minWidth: 0, fontSize: 16, padding: '14px 14px', fontWeight: 500, color: '#e8e8f0', background: '#12122a', WebkitTextFillColor: '#e8e8f0' }} />
         <button onClick={searchCustomers} className="btn btn-sm" style={{ padding: '13px 18px', fontSize: 15, fontWeight: 800 }}>Search</button>
         <button onClick={() => { setSearch(''); setTierFilter('all'); loadCustomers(); }} className="btn btn-sm" style={{ padding: '13px 14px', fontSize: 14 }}>All</button>
       </div>
