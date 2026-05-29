@@ -10,17 +10,16 @@ export default async function handler(req, res) {
   if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = await getDb();
-  const [accessories, phones, repairs, settingRows] = await Promise.all([
-    db.queryOne(`SELECT COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as amt
-                 FROM sale_items si JOIN sales s ON s.id=si.sale_id
-                 WHERE si.product_id IS NOT NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
-    db.queryOne(`SELECT COALESCE(SUM(si.quantity),0) as qty
-                 FROM sale_items si JOIN sales s ON s.id=si.sale_id
-                 WHERE si.product_id IS NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}`),
-    db.queryOne(`SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as amt
-                 FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} = ${NPT_TODAY}`),
-    db.query(`SELECT key, value FROM shop_settings WHERE key IN ('target_phones_qty','target_accessories_amt','target_repairs_amt')`),
+  const raw = await db.batch([
+    { sql: `SELECT COALESCE(SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)),0) as amt FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE si.product_id IS NOT NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}` },
+    { sql: `SELECT COALESCE(SUM(si.quantity),0) as qty FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE si.product_id IS NULL AND ${nptDate('s.created_at')} = ${NPT_TODAY}` },
+    { sql: `SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as amt FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} = ${NPT_TODAY}` },
+    { sql: `SELECT key, value FROM shop_settings WHERE key IN ('target_phones_qty','target_accessories_amt','target_repairs_amt')` },
   ]);
+  const accessories  = raw[0][0] ?? null;
+  const phones       = raw[1][0] ?? null;
+  const repairs      = raw[2][0] ?? null;
+  const settingRows  = raw[3];
 
   const sm = {};
   for (const row of settingRows) sm[row.key] = Number(row.value) || 0;
