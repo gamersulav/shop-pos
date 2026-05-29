@@ -22,21 +22,28 @@ export default async function handler(req, res) {
   const db = await getDb();
 
   if (req.method === 'POST') {
-    const { customer_id, sale_id, amount, loyalty_discount = 0 } = req.body;
+    // repair_id + repair_amount: for repair-based awards (no sale_items row)
+    const { customer_id, sale_id, repair_id, amount, loyalty_discount = 0, repair_amount = 0 } = req.body;
     if (!customer_id) return res.status(400).json({ error: 'customer_id required' });
+
+    const prevTier = (await db.queryOne('SELECT tier FROM customers WHERE id=?', [Number(customer_id)]))?.tier;
 
     await db.tx(async tx => {
       const c = await tx.queryOne('SELECT * FROM customers WHERE id=?', [Number(customer_id)]);
       if (!c) return;
 
-      // Separate phone items (product_id IS NULL) from accessory/repair items
-      const saleItems = sale_id
-        ? await tx.query('SELECT * FROM sale_items WHERE sale_id=?', [Number(sale_id)])
-        : [];
-      const phonesInSale = saleItems.filter(si => si.product_id == null).length;
-      const nonPhoneGross = saleItems
-        .filter(si => si.product_id != null)
-        .reduce((s, si) => s + Math.max(0, Number(si.unit_price) * (Number(si.quantity) || 1) - (Number(si.item_discount) || 0)), 0);
+      // For sales: derive phone count and non-phone spend from sale_items
+      // For repairs: repair_amount is passed directly as non-phone spend
+      let phonesInSale = 0;
+      let nonPhoneGross = Number(repair_amount) || 0; // repairs count as non-phone spend
+
+      if (sale_id) {
+        const saleItems = await tx.query('SELECT * FROM sale_items WHERE sale_id=?', [Number(sale_id)]);
+        phonesInSale = saleItems.filter(si => si.product_id == null).length;
+        nonPhoneGross = saleItems
+          .filter(si => si.product_id != null)
+          .reduce((s, si) => s + Math.max(0, Number(si.unit_price) * (Number(si.quantity) || 1) - (Number(si.item_discount) || 0)), 0);
+      }
 
       const earnAmt       = Math.max(0, Number(amount) - Number(loyalty_discount));
       const earned        = calcPoints(c.tier, earnAmt);
@@ -55,17 +62,20 @@ export default async function handler(req, res) {
         [newSpent, newVisits, newPoints, tier, newPhoneCount, newNonPhone, Number(customer_id)]
       );
 
+      const refId = sale_id ? Number(sale_id) : (repair_id ? Number(repair_id) : null);
+      const refNote = sale_id ? `sale #${sale_id}` : `repair #${repair_id}`;
+
       if (earned > 0) {
         await tx.run(
           `INSERT INTO loyalty_events (customer_id, sale_id, type, points, note) VALUES (?, ?, 'earned', ?, ?)`,
-          [Number(customer_id), sale_id ? Number(sale_id) : null, earned, `Earned on sale #${sale_id}`]
+          [Number(customer_id), refId, earned, `Earned on ${refNote}`]
         );
       }
 
       if (redeemed > 0) {
         await tx.run(
           `INSERT INTO loyalty_events (customer_id, sale_id, type, points, note) VALUES (?, ?, 'redeemed', ?, ?)`,
-          [Number(customer_id), sale_id ? Number(sale_id) : null, -redeemed, `Redeemed Rs ${loyalty_discount} off`]
+          [Number(customer_id), refId, -redeemed, `Redeemed Rs ${loyalty_discount} off`]
         );
       }
 
@@ -78,7 +88,7 @@ export default async function handler(req, res) {
     });
 
     const updated = await db.queryOne('SELECT * FROM customers WHERE id=?', [Number(customer_id)]);
-    return res.json({ ok: true, customer: updated });
+    return res.json({ ok: true, customer: updated, prevTier });
   }
 
   res.status(405).end();

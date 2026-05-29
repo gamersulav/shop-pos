@@ -13,11 +13,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { customer_name, customer_phone, phone_model = '—', issue, customer_price = 0, status = 'Pending', payment_method = 'Cash' } = req.body;
+    const { customer_name, customer_phone, phone_model = '—', issue, customer_price = 0, status = 'Pending', payment_method = 'Cash', repair_discount = 0, loyalty_customer_id = null } = req.body;
     if (!customer_name || !customer_phone || !issue) return res.status(400).json({ error: 'Customer name, phone number, and issue are required' });
     const { lastId } = await db.run(
-      'INSERT INTO repairs (customer_name,customer_phone,phone_model,issue,customer_price,status,payment_method,user_id) VALUES (?,?,?,?,?,?,?,?)',
-      [customer_name, customer_phone, phone_model, issue, Number(customer_price), status, payment_method, session.id]
+      'INSERT INTO repairs (customer_name,customer_phone,phone_model,issue,customer_price,status,payment_method,user_id,repair_discount,loyalty_customer_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [customer_name, customer_phone, phone_model, issue, Number(customer_price), status, payment_method, session.id, Number(repair_discount), loyalty_customer_id ? Number(loyalty_customer_id) : null]
     );
     return res.json({ ok: true, id: lastId });
   }

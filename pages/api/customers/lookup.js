@@ -10,10 +10,10 @@ export default async function handler(req, res) {
   if (!q?.trim()) return res.status(400).json({ error: 'Query required' });
 
   const qt = q.trim();
-  // Exact match first (phone or card number), then name prefix
+  // Exact match first (phone or card number), then name contains
   const customer = await db.queryOne(
     `SELECT * FROM customers WHERE phone=? OR card_number=? OR name LIKE ? LIMIT 1`,
-    [qt, qt.toUpperCase(), `${qt}%`]
+    [qt, qt.toUpperCase(), `%${qt}%`]
   );
   if (!customer) return res.status(404).json({ error: 'Not found' });
   return res.json(customer);

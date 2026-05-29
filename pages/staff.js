@@ -690,6 +690,10 @@ function SaleTab({ products, phones }) {
           fetch('/api/loyalty/award', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ customer_id: loyaltyCustomer.id, sale_id: saleData.id, amount: grandTotal, loyalty_discount: loyaltyDiscount }),
+          }).then(r => r.json()).then(d => {
+            if (d.customer && d.prevTier && d.customer.tier !== d.prevTier) {
+              showToast(`🎉 ${d.customer.name} upgraded to ${d.customer.tier}!`, 'success');
+            }
           }).catch(() => {});
         }
       } else {
@@ -1561,17 +1565,36 @@ function RepairTab() {
     }
 
     setSaving(true);
+    const loyaltyDisc = repLoyaltyDisc();
     const res = await fetch('/api/repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(repairBody),
+      body: JSON.stringify({
+        ...repairBody,
+        repair_discount:     loyaltyDisc,
+        loyalty_customer_id: repLoyaltyCustomer?.id ?? null,
+      }),
     });
     setSaving(false);
     if (res.ok) {
       const { id } = await res.json().catch(() => ({}));
-      const loyaltyDisc = repLoyaltyDisc();
-      if (id && loyaltyDisc > 0) {
-        fetch(`/api/repairs/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ repair_discount: loyaltyDisc }) });
+      // Award points for the repair (counts toward tier and earns points)
+      if (id && repLoyaltyCustomer) {
+        const netAmount = Math.max(0, (parseFloat(form.customerPrice) || 0) - loyaltyDisc);
+        fetch('/api/loyalty/award', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id:  repLoyaltyCustomer.id,
+            repair_id:    id,
+            amount:       parseFloat(form.customerPrice) || 0,
+            loyalty_discount: loyaltyDisc,
+            repair_amount: netAmount,
+          }),
+        }).then(r => r.json()).then(d => {
+          if (d.customer && d.prevTier && d.customer.tier !== d.prevTier) {
+            showToast(`🎉 ${d.customer.name} upgraded to ${d.customer.tier}!`, 'success');
+          }
+        }).catch(() => {});
       }
       const newRepair = { id, customer_name: form.customer, customer_phone: form.customerPhone, phone_model: form.phone, issue: form.issue, customer_price: parseFloat(form.customerPrice) || 0, status: form.status, payment_method: form.payment, repair_discount: loyaltyDisc, created_at: new Date().toISOString() };
       setRepairs(prev => [newRepair, ...prev]);
