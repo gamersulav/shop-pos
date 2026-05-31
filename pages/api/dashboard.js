@@ -82,6 +82,10 @@ export default async function handler(req, res) {
     { sql: `SELECT COALESCE(SUM(return_amount),0) as revenue, COALESCE(SUM(return_profit),0) as profit FROM sales_returns WHERE ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
     { sql: `SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue, COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit FROM repairs WHERE status IN ('Done','Delivered') AND ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
     { sql: `SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE category='expense' AND ${nptMonth('expense_date')} = ${NPT_LAST_MONTH}` },
+    // 38 today repairs
+    { sql: `SELECT COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) ELSE 0 END),0) as profit FROM repairs WHERE ${nptDate('created_at')} = ${NPT_TODAY}` },
+    // 39 monthly repairs
+    { sql: `SELECT COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) ELSE 0 END),0) as profit FROM repairs WHERE ${nptMonth('created_at')} = ${NPT_MONTH}` },
   ]);
 
   const today          = one(raw[0]);
@@ -122,6 +126,8 @@ export default async function handler(req, res) {
   const lmReturns      = one(raw[35]);
   const lmRepairs      = one(raw[36]);
   const lmExp          = one(raw[37]);
+  const todayRepairs   = one(raw[38]);
+  const monthlyRepairs = one(raw[39]);
 
   function buildDisc(items, phones, repairs, crSales, crRepairs) {
     const d = {
@@ -138,10 +144,10 @@ export default async function handler(req, res) {
   const todayDiscounts   = buildDisc(dTodayItems, dTodayPhones, dTodayRepairs, dTodayCrSales, dTodayCrRepairs);
   const monthlyDiscounts = buildDisc(dMonthItems, dMonthPhones, dMonthRepairs, dMonthCrSales, dMonthCrRepairs);
 
-  const todayRev  = Number(today?.revenue     || 0) - Number(todayReturns?.revenue || 0);
-  const todayPro  = Number(todayProfit?.profit || 0) - Number(todayReturns?.profit  || 0) - Number(todayCreditDiscs?.total || 0);
-  const rev       = Number(monthly?.revenue   || 0) - Number(monthlyReturns?.revenue || 0);
-  const profit    = Number(monthlyProfit?.profit || 0) - Number(monthlyReturns?.profit || 0) - Number(monthlyCreditDiscs?.total || 0);
+  const todayRev  = Number(today?.revenue     || 0) + Number(todayRepairs?.revenue   || 0) - Number(todayReturns?.revenue   || 0);
+  const todayPro  = Number(todayProfit?.profit || 0) + Number(todayRepairs?.profit    || 0) - Number(todayReturns?.profit    || 0) - Number(todayCreditDiscs?.total || 0);
+  const rev       = Number(monthly?.revenue   || 0) + Number(monthlyRepairs?.revenue  || 0) - Number(monthlyReturns?.revenue  || 0);
+  const profit    = Number(monthlyProfit?.profit || 0) + Number(monthlyRepairs?.profit || 0) - Number(monthlyReturns?.profit  || 0) - Number(monthlyCreditDiscs?.total || 0);
   const lmRev    = Number(lmSales?.revenue || 0) + Number(lmRepairs?.revenue || 0) - Number(lmReturns?.revenue || 0);
   const lmGross  = Number(lmSalesProfit?.profit || 0) + Number(lmRepairs?.profit || 0) - Number(lmReturns?.profit || 0);
   const lmExpAmt = Number(lmExp?.total || 0);

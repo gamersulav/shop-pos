@@ -68,7 +68,7 @@ export default async function handler(req, res) {
   const repairMonthly = await db.query(`
     SELECT CAST(strftime('%m', created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
            COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     WHERE strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
@@ -116,7 +116,7 @@ export default async function handler(req, res) {
   const yearlyRepair = await db.query(`
     SELECT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr,
            COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - cost_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     GROUP BY yr ORDER BY yr DESC
