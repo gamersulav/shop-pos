@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     if (notes         !== undefined) { fields.push('notes=?');         vals.push(notes); }
     if (!fields.length && discount === undefined) return res.status(400).json({ error: 'Nothing to update' });
 
-    const phone = await db.queryOne('SELECT sold_in_sale FROM used_phones WHERE id=?', [id]);
+    const phone = await db.queryOne('SELECT * FROM used_phones WHERE id=?', [id]);
     if (fields.length) { vals.push(id); await db.run(`UPDATE used_phones SET ${fields.join(',')} WHERE id=?`, vals); }
 
     // Sync sale_items and sales if this phone has been sold
@@ -30,12 +30,16 @@ export default async function handler(req, res) {
       if (selling_price !== undefined) { siFields.push('unit_price=?');    siVals.push(Number(selling_price)); }
       if (cost_price    !== undefined) { siFields.push('cost_price=?');    siVals.push(Number(cost_price)); }
       if (discount      !== undefined) { siFields.push('item_discount=?'); siVals.push(Math.max(0, Number(discount))); }
-      siVals.push(phone.sold_in_sale);
-      await db.run(`UPDATE sale_items SET ${siFields.join(',')} WHERE sale_id=? AND product_id IS NULL`, siVals);
+      // Filter by model so only THIS phone's sale_item is updated, not all phones in the same sale
+      siVals.push(phone.sold_in_sale, phone.model);
+      await db.run(`UPDATE sale_items SET ${siFields.join(',')} WHERE sale_id=? AND product_id IS NULL AND product_name=?`, siVals);
 
-      const si = await db.queryOne('SELECT unit_price, COALESCE(item_discount,0) as disc FROM sale_items WHERE sale_id=? AND product_id IS NULL', [phone.sold_in_sale]);
-      const newTotal = Math.max(0, Number(si?.unit_price || 0) - Number(si?.disc || 0));
-      await db.run('UPDATE sales SET total_amount=?, discount_amount=? WHERE id=?', [newTotal, Number(si?.disc || 0), phone.sold_in_sale]);
+      // Recalculate sale total from ALL items (not just this phone) to handle mixed product+phone sales
+      const totals = await db.queryOne(
+        'SELECT COALESCE(SUM(unit_price * quantity - COALESCE(item_discount,0)), 0) as t, COALESCE(SUM(COALESCE(item_discount,0)), 0) as d FROM sale_items WHERE sale_id=?',
+        [phone.sold_in_sale]
+      );
+      await db.run('UPDATE sales SET total_amount=?, discount_amount=? WHERE id=?', [Number(totals?.t || 0), Number(totals?.d || 0), phone.sold_in_sale]);
     }
 
     return res.json({ ok: true });
