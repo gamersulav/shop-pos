@@ -2128,10 +2128,18 @@ function OwnerCreditsTab() {
                     ✓ Mark Paid
                   </button>
                 )}
-                {item.credit_cleared && item.credit_cleared_at && (
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    Paid {fmtDate(item.credit_cleared_at, { day: 'numeric', month: 'short' })}
-                  </span>
+                {item.credit_cleared && !isDiscounting && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                    {item.credit_cleared_at && (
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        Paid {fmtDate(item.credit_cleared_at, { day: 'numeric', month: 'short' })}
+                      </span>
+                    )}
+                    <button className="btn btn-ghost btn-sm" style={{ width: 'auto', padding: '4px 10px', fontSize: 11 }}
+                      onClick={() => { setDiscounting(key); setLineDiscounts({}); setClearedMethod(item.cleared_payment_method || 'Cash'); }}>
+                      ✏️ Edit
+                    </button>
+                  </div>
                 )}
               </div>
               {isDiscounting && (
