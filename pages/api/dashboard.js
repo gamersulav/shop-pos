@@ -1,11 +1,10 @@
 import { getDb } from '../../lib/db';
 import { getSession } from '../../lib/auth';
-
-const NPT_TODAY      = "date('now', '+5 hours', '+45 minutes')";
-const NPT_MONTH      = "strftime('%Y-%m', 'now', '+5 hours', '+45 minutes')";
-const NPT_LAST_MONTH = "strftime('%Y-%m', 'now', '+5 hours', '+45 minutes', '-1 month')";
-function nptDate(col)  { return `date(${col}, '+5 hours', '+45 minutes')`; }
-function nptMonth(col) { return `strftime('%Y-%m', ${col}, '+5 hours', '+45 minutes')`; }
+import {
+  NPT_TODAY, NPT_MONTH, NPT_LAST_MONTH, nptDate, nptMonth,
+  SALE_PROFIT, PHONE_PROFIT, PRODUCT_REVENUE,
+  REPAIR_DONE, REPAIR_REVENUE, REPAIR_PROFIT,
+} from '../../lib/finance';
 
 // helper — extract first row (like queryOne) from a batch result slot
 const one = rows => rows[0] ?? null;
@@ -23,7 +22,7 @@ export default async function handler(req, res) {
     // 1  today items
     { sql: `SELECT COALESCE(SUM(si.quantity),0) as items FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}` },
     // 2  today profit
-    { sql: `SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}` },
+    { sql: `SELECT COALESCE(SUM(${SALE_PROFIT}),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} = ${NPT_TODAY}` },
     // 3  today credit discounts
     { sql: `SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY} AND credit_cleared=1` },
     // 4  today returns
@@ -31,7 +30,7 @@ export default async function handler(req, res) {
     // 5  monthly sales
     { sql: `SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH}` },
     // 6  monthly profit
-    { sql: `SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}` },
+    { sql: `SELECT COALESCE(SUM(${SALE_PROFIT}),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH}` },
     // 7  monthly credit discounts
     { sql: `SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE ${nptMonth('created_at')} = ${NPT_MONTH} AND credit_cleared=1` },
     // 8  monthly returns
@@ -39,7 +38,7 @@ export default async function handler(req, res) {
     // 9  payment breakdown (all rows)
     { sql: `SELECT payment_method as method, COUNT(*) as count, SUM(total_amount) as total FROM sales WHERE ${nptDate('created_at')} = ${NPT_TODAY} GROUP BY payment_method ORDER BY total DESC` },
     // 10 top products (all rows)
-    { sql: `SELECT si.product_name as name, SUM(si.quantity) as qty, SUM(si.quantity*si.unit_price - COALESCE(si.item_discount,0)) as revenue, SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH} GROUP BY si.product_name ORDER BY qty DESC LIMIT 6` },
+    { sql: `SELECT si.product_name as name, SUM(si.quantity) as qty, SUM(${PRODUCT_REVENUE}) as revenue, SUM(${SALE_PROFIT}) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_MONTH} GROUP BY si.product_name ORDER BY qty DESC LIMIT 6` },
     // 11 today expenses
     { sql: `SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date = ${NPT_TODAY} AND category = 'expense'` },
     // 12 monthly expenses
@@ -51,7 +50,7 @@ export default async function handler(req, res) {
     // 15 phone stats
     { sql: `SELECT COUNT(CASE WHEN status='available' THEN 1 END) as available, COUNT(CASE WHEN status='sold' AND ${nptMonth('sold_at')} = ${NPT_MONTH} THEN 1 END) as sold_month, COUNT(CASE WHEN status='available' AND selling_price=0 THEN 1 END) as needs_pricing FROM used_phones` },
     // 16 phone profit this month
-    { sql: `SELECT COALESCE(SUM(si.unit_price - si.cost_price - COALESCE(si.item_discount,0)),0) as phone_profit_month FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE si.product_id IS NULL AND ${nptMonth('s.created_at')} = ${NPT_MONTH}` },
+    { sql: `SELECT COALESCE(SUM(${PHONE_PROFIT}),0) as phone_profit_month FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE si.product_id IS NULL AND ${nptMonth('s.created_at')} = ${NPT_MONTH}` },
     // 17-21 today discounts
     { sql: `SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NOT NULL AND si.item_discount > 0 AND ${nptDate('s.created_at')} = ${NPT_TODAY}` },
     { sql: `SELECT COALESCE(SUM(si.item_discount),0) as total FROM sale_items si JOIN sales s ON si.sale_id=s.id WHERE si.product_id IS NULL AND si.item_discount > 0 AND ${nptDate('s.created_at')} = ${NPT_TODAY}` },
@@ -65,9 +64,9 @@ export default async function handler(req, res) {
     { sql: `SELECT COALESCE(SUM(credit_discount),0) as total FROM sales WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptMonth('credit_cleared_at')} = ${NPT_MONTH}` },
     { sql: `SELECT COALESCE(SUM(credit_discount),0) as total FROM repairs WHERE payment_method='Credit' AND credit_cleared=1 AND credit_discount > 0 AND ${nptMonth('credit_cleared_at')} = ${NPT_MONTH}` },
     // 27 daily sales (all rows)
-    { sql: `SELECT ${nptDate('s.created_at')} as day, COALESCE(SUM(s.total_amount - COALESCE(s.credit_discount,0)),0) as revenue, COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC` },
+    { sql: `SELECT ${nptDate('s.created_at')} as day, COALESCE(SUM(s.total_amount - COALESCE(s.credit_discount,0)),0) as revenue, COALESCE(SUM(${SALE_PROFIT}),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptDate('s.created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC` },
     // 28 daily repairs (all rows)
-    { sql: `SELECT ${nptDate('created_at')} as day, COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit, COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue FROM repairs WHERE status IN ('Done','Delivered') AND ${nptDate('created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC` },
+    { sql: `SELECT ${nptDate('created_at')} as day, COALESCE(SUM(${REPAIR_PROFIT}),0) as profit, COALESCE(SUM(${REPAIR_REVENUE}),0) as revenue FROM repairs WHERE ${REPAIR_DONE} AND ${nptDate('created_at')} >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC` },
     // 29 daily expenses (all rows)
     { sql: `SELECT expense_date as day, COALESCE(SUM(amount),0) as expenses FROM expenses WHERE category='expense' AND expense_date >= date('now','+5 hours','+45 minutes','-29 days') GROUP BY day ORDER BY day DESC` },
     // 30 inventory products
@@ -78,14 +77,14 @@ export default async function handler(req, res) {
     { sql: `SELECT COALESCE(SUM(CASE WHEN direction!='out' THEN unit_cost*quantity ELSE 0 END),0) as we_owe, COALESCE(SUM(CASE WHEN direction='out' THEN unit_cost*quantity ELSE 0 END),0) as they_owe FROM shop_tabs WHERE settled=0` },
     // 33-37 last month
     { sql: `SELECT COALESCE(SUM(total_amount - COALESCE(credit_discount,0)),0) as revenue, COUNT(*) as sales FROM sales WHERE ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
-    { sql: `SELECT COALESCE(SUM(si.quantity*(si.unit_price-si.cost_price) - COALESCE(si.item_discount,0)),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_LAST_MONTH}` },
+    { sql: `SELECT COALESCE(SUM(${SALE_PROFIT}),0) as profit FROM sales s JOIN sale_items si ON si.sale_id=s.id WHERE ${nptMonth('s.created_at')} = ${NPT_LAST_MONTH}` },
     { sql: `SELECT COALESCE(SUM(return_amount),0) as revenue, COALESCE(SUM(return_profit),0) as profit FROM sales_returns WHERE ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
-    { sql: `SELECT COALESCE(SUM(customer_price - COALESCE(repair_discount,0)),0) as revenue, COALESCE(SUM(customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0)),0) as profit FROM repairs WHERE status IN ('Done','Delivered') AND ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
+    { sql: `SELECT COALESCE(SUM(${REPAIR_REVENUE}),0) as revenue, COALESCE(SUM(${REPAIR_PROFIT}),0) as profit FROM repairs WHERE ${REPAIR_DONE} AND ${nptMonth('created_at')} = ${NPT_LAST_MONTH}` },
     { sql: `SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE category='expense' AND ${nptMonth('expense_date')} = ${NPT_LAST_MONTH}` },
     // 38 today repairs
-    { sql: `SELECT COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) ELSE 0 END),0) as profit FROM repairs WHERE ${nptDate('created_at')} = ${NPT_TODAY}` },
+    { sql: `SELECT COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_REVENUE} ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_PROFIT} ELSE 0 END),0) as profit FROM repairs WHERE ${nptDate('created_at')} = ${NPT_TODAY}` },
     // 39 monthly repairs
-    { sql: `SELECT COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) ELSE 0 END),0) as profit FROM repairs WHERE ${nptMonth('created_at')} = ${NPT_MONTH}` },
+    { sql: `SELECT COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_REVENUE} ELSE 0 END),0) as revenue, COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_PROFIT} ELSE 0 END),0) as profit FROM repairs WHERE ${nptMonth('created_at')} = ${NPT_MONTH}` },
   ]);
 
   const today          = one(raw[0]);

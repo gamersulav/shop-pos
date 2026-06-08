@@ -1,5 +1,9 @@
 import { getDb } from '../../lib/db';
 import { getSession } from '../../lib/auth';
+import {
+  PRODUCT_REVENUE, PRODUCT_PROFIT, PHONE_REVENUE, PHONE_PROFIT,
+  REPAIR_DONE, REPAIR_REVENUE, REPAIR_PROFIT,
+} from '../../lib/finance';
 
 export default async function handler(req, res) {
   const session = await getSession(req);
@@ -22,8 +26,8 @@ export default async function handler(req, res) {
   // ── Monthly: product sales ────────────────────────────────────────────────
   const prodMonthly = await db.query(`
     SELECT CAST(strftime('%m', s.created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
-           COALESCE(SUM(si.quantity * si.unit_price - COALESCE(si.item_discount,0)), 0)                    as revenue,
-           COALESCE(SUM(si.quantity * (si.unit_price - si.cost_price) - COALESCE(si.item_discount,0)), 0)  as profit,
+           COALESCE(SUM(${PRODUCT_REVENUE}), 0)                    as revenue,
+           COALESCE(SUM(${PRODUCT_PROFIT}), 0)  as profit,
            COUNT(DISTINCT s.id)                                              as sales
     FROM sales s JOIN sale_items si ON si.sale_id = s.id
     WHERE strftime('%Y', s.created_at, '+5 hours', '+45 minutes') = ?
@@ -34,8 +38,8 @@ export default async function handler(req, res) {
   // ── Monthly: phone sales ──────────────────────────────────────────────────
   const phoneMonthly = await db.query(`
     SELECT CAST(strftime('%m', s.created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
-           COALESCE(SUM(si.unit_price - COALESCE(si.item_discount,0)), 0)                 as revenue,
-           COALESCE(SUM(si.unit_price - si.cost_price - COALESCE(si.item_discount,0)), 0) as profit,
+           COALESCE(SUM(${PHONE_REVENUE}), 0)                 as revenue,
+           COALESCE(SUM(${PHONE_PROFIT}), 0) as profit,
            COUNT(s.id)                                     as sales
     FROM sales s JOIN sale_items si ON si.sale_id = s.id
     WHERE strftime('%Y', s.created_at, '+5 hours', '+45 minutes') = ?
@@ -67,8 +71,8 @@ export default async function handler(req, res) {
   // ── Monthly: repairs ─────────────────────────────────────────────────────
   const repairMonthly = await db.query(`
     SELECT CAST(strftime('%m', created_at, '+5 hours', '+45 minutes') AS INTEGER) as month,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_REVENUE} ELSE 0 END), 0) as revenue,
+           COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_PROFIT} ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     WHERE strftime('%Y', created_at, '+5 hours', '+45 minutes') = ?
@@ -78,8 +82,8 @@ export default async function handler(req, res) {
   // ── Yearly totals: products ───────────────────────────────────────────────
   const yearlyProd = await db.query(`
     SELECT strftime('%Y', s.created_at, '+5 hours', '+45 minutes')         as yr,
-           COALESCE(SUM(si.quantity * si.unit_price - COALESCE(si.item_discount,0)), 0)                    as revenue,
-           COALESCE(SUM(si.quantity * (si.unit_price - si.cost_price) - COALESCE(si.item_discount,0)), 0)  as profit,
+           COALESCE(SUM(${PRODUCT_REVENUE}), 0)                    as revenue,
+           COALESCE(SUM(${PRODUCT_PROFIT}), 0)  as profit,
            COUNT(DISTINCT s.id)                                              as sales
     FROM sales s JOIN sale_items si ON si.sale_id = s.id
     WHERE si.product_id IS NOT NULL
@@ -89,8 +93,8 @@ export default async function handler(req, res) {
   // ── Yearly totals: phones ─────────────────────────────────────────────────
   const yearlyPhone = await db.query(`
     SELECT strftime('%Y', s.created_at, '+5 hours', '+45 minutes')  as yr,
-           COALESCE(SUM(si.unit_price - COALESCE(si.item_discount,0)), 0)          as revenue,
-           COALESCE(SUM(si.unit_price - si.cost_price - COALESCE(si.item_discount,0)), 0) as profit,
+           COALESCE(SUM(${PHONE_REVENUE}), 0)          as revenue,
+           COALESCE(SUM(${PHONE_PROFIT}), 0) as profit,
            COUNT(s.id)                                              as sales
     FROM sales s JOIN sale_items si ON si.sale_id = s.id
     WHERE si.product_id IS NULL
@@ -115,8 +119,8 @@ export default async function handler(req, res) {
   // ── Yearly totals: repairs ────────────────────────────────────────────────
   const yearlyRepair = await db.query(`
     SELECT strftime('%Y', created_at, '+5 hours', '+45 minutes') as yr,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as revenue,
-           COALESCE(SUM(CASE WHEN status IN ('Done','Delivered') THEN customer_price - COALESCE(cost_price,0) - COALESCE(repair_discount,0) - COALESCE(credit_discount,0) ELSE 0 END), 0) as profit,
+           COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_REVENUE} ELSE 0 END), 0) as revenue,
+           COALESCE(SUM(CASE WHEN ${REPAIR_DONE} THEN ${REPAIR_PROFIT} ELSE 0 END), 0) as profit,
            COUNT(*) as count
     FROM repairs
     GROUP BY yr ORDER BY yr DESC

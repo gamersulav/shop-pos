@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDb } from '../../../lib/db';
 import { getSession } from '../../../lib/auth';
+import { SALE_PROFIT } from '../../../lib/finance';
 
 export default async function handler(req, res) {
   const session = await getSession(req);
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
     db.queryOne(`SELECT COUNT(*) as total, SUM(CASE WHEN status='available' AND selling_price=0 THEN 1 ELSE 0 END) as unpriced FROM used_phones WHERE status='available'`),
     db.queryOne(`SELECT COUNT(*) as c FROM repairs WHERE status IN ('Pending','In Progress','Done')`),
     db.queryOne(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE strftime('%Y-%m',created_at,'+5 hours','+45 minutes')=strftime('%Y-%m','now','+5 hours','+45 minutes')`),
-    db.queryOne(`SELECT COALESCE(SUM((si.unit_price-si.cost_price)*si.quantity-si.item_discount),0) as p FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE strftime('%Y-%m',s.created_at,'+5 hours','+45 minutes')=strftime('%Y-%m','now','+5 hours','+45 minutes')`),
+    db.queryOne(`SELECT COALESCE(SUM(${SALE_PROFIT}),0) as p FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE strftime('%Y-%m',s.created_at,'+5 hours','+45 minutes')=strftime('%Y-%m','now','+5 hours','+45 minutes')`),
   ]);
 
   const revChange = lastMonth?.rev > 0
